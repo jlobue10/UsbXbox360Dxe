@@ -224,7 +224,7 @@ RightStickScrollSensitivity=30   # 1-100, higher = faster scroll
 # Built-in Supported Devices
 # ==================
 # Microsoft: Xbox 360 Wired/Wireless controllers
-# Handhelds: GPD Win 2, OneXPlayer, Legion Go/Go S, MSI Claw, etc.
+# Handhelds: GPD Win 2, OneXPlayer, Legion Go/Go 2/Go S, MSI Claw, etc.
 # 8BitDo: Ultimate, Pro 2, SN30 Pro
 # Logitech: F310, F510, F710
 # HyperX: Clutch (wired/wireless)

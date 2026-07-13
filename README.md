@@ -164,7 +164,7 @@ The driver will log detected devices to debug output.
 - **Handheld Gaming Devices (XInput)**:
   - GPD Win 2
   - OneXPlayer
-  - Lenovo Legion Go / Legion Go S
+  - Lenovo Legion Go / Legion Go 2 / Legion Go S
   - MSI Claw
   - TECNO Pocket Go
   - ZOTAC Gaming Zone

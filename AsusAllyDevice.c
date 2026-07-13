@@ -397,7 +397,7 @@ AsusAllyPollingHandler (
                     UsbKeyboardDevice->IntEndpointDescriptor.EndpointAddress,
                     Buffer,
                     &DataLength,
-                    75,  // 75ms timeout - shorter values cause random lockups (SkorionOS/UsbXbox360Dxe#5)
+                    10,  // 10ms timeout
                     &UsbStatus
                     );
   

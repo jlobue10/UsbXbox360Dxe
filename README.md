@@ -1,5 +1,7 @@
 # UEFI Driver for Xbox 360 Controller
 
+> **Note:** This is a fork of **[SkorionOS/UsbXbox360Dxe](https://github.com/SkorionOS/UsbXbox360Dxe)** — all credit for the driver goes to the original project and its contributors. This fork only adds Lenovo Legion Go 2 controller support (submitted upstream as [PR #6](https://github.com/SkorionOS/UsbXbox360Dxe/pull/6)) and carries the ASUS Ally 75ms poll-timeout lockup fix from [PR #5](https://github.com/SkorionOS/UsbXbox360Dxe/pull/5) by @GumbyXGames. Prefer the upstream releases once these changes are merged there.
+
 This driver is modified from [edk2](https://github.com/tianocore/edk2) USB keyboard driver, with AI-assistance. It provides full Xbox 360 controller support in UEFI environments with mouse emulation, enabling controller use in BIOS, bootloaders, and other UEFI applications.
 
 ## Features

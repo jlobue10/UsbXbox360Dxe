@@ -1090,7 +1090,25 @@ TryWriteExampleToVolume (
     return Status;
   }
 
-  // Create/overwrite example file
+  // Only create the example once. Rewriting it on every driver start is a
+  // needless flash write on a boot-critical volume; delete the file to have
+  // it regenerated (e.g. after a driver update).
+  Status = Dir->Open(
+    Dir,
+    &ExampleFile,
+    L"config.ini.example",
+    EFI_FILE_MODE_READ,
+    0
+  );
+
+  if (!EFI_ERROR(Status)) {
+    ExampleFile->Close(ExampleFile);
+    Dir->Close(Dir);
+    Root->Close(Root);
+    return EFI_SUCCESS;
+  }
+
+  // Create example file
   Status = Dir->Open(
     Dir,
     &ExampleFile,

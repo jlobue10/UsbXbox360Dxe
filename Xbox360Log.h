@@ -27,7 +27,19 @@
 //
 // Logging configuration
 //
-#define XBOX360_LOG_ENABLED         1
+// File logging writes to the ESP on every message. That is useful when
+// debugging, but in production it is a flash-wear / FAT-corruption hazard on
+// a boot-critical volume, so it is compiled out of RELEASE builds
+// (MDEPKG_NDEBUG is defined for RELEASE targets in UsbXbox360Dxe.inf
+// [BuildOptions]).
+//
+#ifndef XBOX360_LOG_ENABLED
+  #ifdef MDEPKG_NDEBUG
+    #define XBOX360_LOG_ENABLED   0
+  #else
+    #define XBOX360_LOG_ENABLED   1
+  #endif
+#endif
 #define XBOX360_LOG_MAX_SIZE        (1024 * 1024)  // 1 MB per log file
 #define XBOX360_LOG_MAX_FILES       5              // Keep only last 5 log files
 

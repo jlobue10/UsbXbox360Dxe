@@ -87,6 +87,13 @@
 [FeaturePcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDisableDefaultKeyboardLayoutInUsbKbDriver ## CONSUMES
 
+[BuildOptions]
+  # MdeModulePkg.dsc does not define MDEPKG_NDEBUG for RELEASE builds; define
+  # it module-scoped so ESP file logging (Xbox360Log.h) compiles out of
+  # release binaries.
+  GCC:RELEASE_*_*_CC_FLAGS  = -D MDEPKG_NDEBUG
+  MSFT:RELEASE_*_*_CC_FLAGS = /D MDEPKG_NDEBUG
+
 # [Event]
 # EVENT_TYPE_RELATIVE_TIMER        ## CONSUMES
 #

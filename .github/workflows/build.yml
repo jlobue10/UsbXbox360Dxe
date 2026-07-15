@@ -59,6 +59,9 @@ jobs:
         export PACKAGES_PATH=$WORKSPACE
         source edksetup.sh
         build -a X64 -t GCC5 -b RELEASE -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
+        # ESP file logging is compiled out of RELEASE builds; also build DEBUG
+        # so the logging code path stays compile-tested.
+        build -a X64 -t GCC5 -b DEBUG -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
         
     - name: Prepare artifact
       run: |

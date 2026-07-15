@@ -11,6 +11,8 @@
 
 #include "Xbox360Log.h"
 
+#if XBOX360_LOG_ENABLED
+
 //
 // Module-level global variables
 //
@@ -388,6 +390,103 @@ CheckLogRotation (
 }
 
 /**
+  Write one formatted log entry to the daily log file under \EFI\Xbox360
+  on the given volume.
+
+  @param  Root         Opened root directory of the volume (not closed here).
+  @param  LogFileName  Daily log file name.
+  @param  LogBuffer    Formatted log entry (ASCII, NUL-terminated).
+  @param  TimeStr      Timestamp string used for the session separator.
+
+  @retval TRUE   Entry written to this volume.
+  @retval FALSE  This volume did not accept the log entry.
+**/
+STATIC
+BOOLEAN
+WriteLogEntryToRoot (
+  IN EFI_FILE_PROTOCOL  *Root,
+  IN CHAR16             *LogFileName,
+  IN CHAR8              *LogBuffer,
+  IN CHAR8              *TimeStr
+  )
+{
+  EFI_STATUS         Status;
+  EFI_FILE_PROTOCOL  *XboxDir;
+  EFI_FILE_PROTOCOL  *LogFile;
+  EFI_FILE_INFO      *FileInfo;
+  UINTN              FileInfoSize;
+  UINTN              BufferSize;
+  CHAR16             LogFilePath[128];
+
+  // Ensure Xbox360 directory exists
+  Status = Root->Open (
+                   Root,
+                   &XboxDir,
+                   L"\\EFI\\Xbox360",
+                   EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+                   EFI_FILE_DIRECTORY
+                   );
+  if (!EFI_ERROR (Status)) {
+    XboxDir->Close (XboxDir);
+  }
+
+  // Check if log rotation needed (only check once per session)
+  if (!mLogInitialized) {
+    CheckLogRotation (Root, LogFileName);
+    CopyMem (mCurrentLogFileName, LogFileName, sizeof (mCurrentLogFileName));
+  }
+
+  // Open/create log file
+  UnicodeSPrint (LogFilePath, sizeof (LogFilePath), L"\\EFI\\Xbox360\\%S", LogFileName);
+
+  Status = Root->Open (
+                   Root,
+                   &LogFile,
+                   LogFilePath,
+                   EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+                   0
+                   );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  // Seek to end for append
+  FileInfoSize = SIZE_OF_EFI_FILE_INFO + 256;
+  FileInfo = AllocateZeroPool (FileInfoSize);
+  if (FileInfo != NULL) {
+    Status = LogFile->GetInfo (LogFile, &gEfiFileInfoGuid, &FileInfoSize, FileInfo);
+    if (!EFI_ERROR (Status)) {
+      LogFile->SetPosition (LogFile, FileInfo->FileSize);
+    }
+    FreePool (FileInfo);
+  }
+
+  // On first log of this session, add separator
+  if (!mLogInitialized) {
+    CHAR8  Separator[128];
+    UINTN  SepSize;
+
+    AsciiSPrint (
+      Separator,
+      sizeof (Separator),
+      "\n========== Driver Loaded: %a ==========\n",
+      TimeStr
+      );
+    SepSize = AsciiStrLen (Separator);
+    LogFile->Write (LogFile, &SepSize, Separator);
+    mLogInitialized = TRUE;
+  }
+
+  // Write log entry
+  BufferSize = AsciiStrLen (LogBuffer);
+  LogFile->Write (LogFile, &BufferSize, LogBuffer);
+  LogFile->Flush (LogFile);
+  LogFile->Close (LogFile);
+
+  return TRUE;
+}
+
+/**
   Write a formatted log entry to the daily log file.
 
   @param  Level    Log level (INFO/WARN/ERROR)
@@ -406,27 +505,28 @@ Xbox360Log (
 {
   EFI_STATUS                       Status;
   UINTN                            HandleCount;
-  EFI_HANDLE                       *HandleBuffer = NULL;
+  EFI_HANDLE                       *HandleBuffer;
   UINTN                            Index;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
   EFI_FILE_PROTOCOL                *Root;
-  EFI_FILE_PROTOCOL                *LogFile;
   CHAR8                            LogBuffer[512];
   CHAR8                            MessageBuffer[384];
   CHAR8                            TimeStr[20];
-  UINTN                            BufferSize;
   VA_LIST                          Args;
   CONST CHAR8                      *LevelStr;
   EFI_TIME                         Time;
-  UINT64                           FileSize;
-  EFI_FILE_INFO                    *FileInfo;
-  UINTN                            FileInfoSize;
   CHAR16                           LogFileName[64];
-  CHAR16                           LogFilePath[128];
+  BOOLEAN                          Written;
 
-#if !XBOX360_LOG_ENABLED
-  return;
-#endif
+  //
+  // The FAT driver acquires its locks at TPL_CALLBACK. Logging from a higher
+  // TPL (e.g. the USB async interrupt callback at TPL_NOTIFY) would make the
+  // FAT driver raise to a *lower* TPL, which is illegal and wedges the
+  // system, so drop the message instead.
+  //
+  if (EfiGetCurrentTpl () > TPL_CALLBACK) {
+    return;
+  }
 
   // Increment sequence
   mLogSequence++;
@@ -473,13 +573,13 @@ Xbox360Log (
   // Try to use driver's loaded image to find the correct ESP partition
   if (mDriverImageHandle != NULL) {
     EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
-    
+
     Status = gBS->HandleProtocol (
                     mDriverImageHandle,
                     &gEfiLoadedImageProtocolGuid,
                     (VOID **)&LoadedImage
                     );
-    
+
     if (!EFI_ERROR (Status) && LoadedImage->DeviceHandle != NULL) {
       // Try to get file system from the device where driver was loaded
       Status = gBS->HandleProtocol (
@@ -487,20 +587,24 @@ Xbox360Log (
                       &gEfiSimpleFileSystemProtocolGuid,
                       (VOID **)&Fs
                       );
-      
+
       if (!EFI_ERROR (Status)) {
         Status = Fs->OpenVolume (Fs, &Root);
-        
+
         if (!EFI_ERROR (Status)) {
           // This is the partition where the driver was loaded from
-          // Try to write log here first
-          goto WriteToPartition;
+          Written = WriteLogEntryToRoot (Root, LogFileName, LogBuffer, TimeStr);
+          Root->Close (Root);
+          if (Written) {
+            return;  // Success
+          }
         }
       }
     }
   }
 
   // Fallback: Try to find ESP partition by enumerating all file systems
+  HandleBuffer = NULL;
   Status = gBS->LocateHandleBuffer (
                   ByProtocol,
                   &gEfiSimpleFileSystemProtocolGuid,
@@ -527,98 +631,14 @@ Xbox360Log (
       continue;
     }
 
-WriteToPartition:
-    // Ensure Xbox360 directory exists
-    EFI_FILE_PROTOCOL *XboxDir;
-    Status = Root->Open (
-                     Root,
-                     &XboxDir,
-                     L"\\EFI\\Xbox360",
-                     EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
-                     EFI_FILE_DIRECTORY
-                     );
-    if (!EFI_ERROR (Status)) {
-      XboxDir->Close (XboxDir);
-    }
-
-    // Check if log rotation needed (only check once per session)
-    if (!mLogInitialized) {
-      CheckLogRotation (Root, LogFileName);
-      CopyMem (mCurrentLogFileName, LogFileName, sizeof(LogFileName));
-    }
-
-    // Open/create log file
-    UnicodeSPrint (LogFilePath, sizeof(LogFilePath), L"\\EFI\\Xbox360\\%S", LogFileName);
-    
-    Status = Root->Open (
-                     Root,
-                     &LogFile,
-                     LogFilePath,
-                     EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
-                     0
-                     );
-    
-    if (!EFI_ERROR (Status)) {
-      // On first log of this session, add separator
-      if (!mLogInitialized) {
-        CHAR8 Separator[128];
-        UINTN SepSize;
-        
-        AsciiSPrint (
-          Separator,
-          sizeof(Separator),
-          "\n========== Driver Loaded: %a ==========\n",
-          TimeStr
-        );
-        SepSize = AsciiStrLen (Separator);
-        
-        // Seek to end
-        FileInfoSize = SIZE_OF_EFI_FILE_INFO + 256;
-        FileInfo = AllocateZeroPool (FileInfoSize);
-        if (FileInfo != NULL) {
-          Status = LogFile->GetInfo (LogFile, &gEfiFileInfoGuid, &FileInfoSize, FileInfo);
-          if (!EFI_ERROR (Status)) {
-            FileSize = FileInfo->FileSize;
-            LogFile->SetPosition (LogFile, FileSize);
-          }
-          FreePool (FileInfo);
-        }
-        
-        LogFile->Write (LogFile, &SepSize, Separator);
-        mLogInitialized = TRUE;
-      } else {
-        // Seek to end for append
-        FileInfoSize = SIZE_OF_EFI_FILE_INFO + 256;
-        FileInfo = AllocateZeroPool (FileInfoSize);
-        if (FileInfo != NULL) {
-          Status = LogFile->GetInfo (LogFile, &gEfiFileInfoGuid, &FileInfoSize, FileInfo);
-          if (!EFI_ERROR (Status)) {
-            FileSize = FileInfo->FileSize;
-            LogFile->SetPosition (LogFile, FileSize);
-          }
-          FreePool (FileInfo);
-        }
-      }
-
-      // Write log entry
-      BufferSize = AsciiStrLen (LogBuffer);
-      LogFile->Write (LogFile, &BufferSize, LogBuffer);
-      LogFile->Flush (LogFile);
-      LogFile->Close (LogFile);
-      
-      Root->Close (Root);
-      if (HandleBuffer != NULL) {
-        gBS->FreePool (HandleBuffer);
-      }
-      return;  // Success
-    }
-
+    Written = WriteLogEntryToRoot (Root, LogFileName, LogBuffer, TimeStr);
     Root->Close (Root);
+    if (Written) {
+      break;  // Success
+    }
   }
 
-  if (HandleBuffer != NULL) {
-    gBS->FreePool (HandleBuffer);
-  }
+  gBS->FreePool (HandleBuffer);
 }
 
 /**
@@ -632,7 +652,6 @@ Xbox360LogCleanup (
   VOID
   )
 {
-#if XBOX360_LOG_ENABLED
   EFI_STATUS                       Status;
   UINTN                            HandleCount;
   EFI_HANDLE                       *HandleBuffer;
@@ -672,7 +691,6 @@ Xbox360LogCleanup (
   }
 
   gBS->FreePool (HandleBuffer);
-#endif
 }
 
 /**
@@ -691,4 +709,41 @@ Xbox360LogSetImageHandle (
 {
   mDriverImageHandle = ImageHandle;
 }
+
+#else // !XBOX360_LOG_ENABLED
+
+//
+// File logging is compiled out (RELEASE builds): writing to the ESP from a
+// boot-critical driver is a flash-wear and FAT-corruption hazard, and must
+// never happen from event callbacks. Keep the public entry points as no-op
+// stubs so callers need no conditional compilation.
+//
+
+VOID
+EFIAPI
+Xbox360Log (
+  IN UINT8        Level,
+  IN CONST CHAR8  *Format,
+  ...
+  )
+{
+}
+
+VOID
+EFIAPI
+Xbox360LogCleanup (
+  VOID
+  )
+{
+}
+
+VOID
+EFIAPI
+Xbox360LogSetImageHandle (
+  IN EFI_HANDLE  ImageHandle
+  )
+{
+}
+
+#endif // XBOX360_LOG_ENABLED
 

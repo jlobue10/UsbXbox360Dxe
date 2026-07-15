@@ -66,7 +66,7 @@ USBKeyboardDriverBindingEntryPoint (
 
   ASSERT_EFI_ERROR (Status);
 
-  return EFI_SUCCESS;
+  return Status;
 }
 
 /**
@@ -468,18 +468,29 @@ USBKeyboardDriverBindingStart (
   PollingInterval = UsbKeyboardDevice->IntEndpointDescriptor.Interval;
   PacketSize      = (UINT8)(UsbKeyboardDevice->IntEndpointDescriptor.MaxPacketSize);
 
-  LOG_INFO ("Starting USB async interrupt transfer (EP:0x%02X Interval:%dms PacketSize:%d)", 
-            EndpointAddr, PollingInterval, PacketSize);
+  if (UsbKeyboardDevice->DeviceType == DEVICE_TYPE_ASUS_ALLY) {
+    //
+    // The Ally X delivers input only via explicit polling (see
+    // AsusAllyPollingHandler). Submitting an async interrupt transfer on the
+    // same endpoint would leave two concurrent transfers on one endpoint
+    // ring, which the EDK2 XHCI driver does not support and can wedge.
+    //
+    LOG_INFO ("ASUS Ally: skipping async interrupt transfer (device is polled)");
+    Status = EFI_SUCCESS;
+  } else {
+    LOG_INFO ("Starting USB async interrupt transfer (EP:0x%02X Interval:%dms PacketSize:%d)",
+              EndpointAddr, PollingInterval, PacketSize);
 
-  Status = UsbIo->UsbAsyncInterruptTransfer (
-                    UsbIo,
-                    EndpointAddr,
-                    TRUE,
-                    PollingInterval,
-                    PacketSize,
-                    KeyboardHandler,
-                    UsbKeyboardDevice
-                    );
+    Status = UsbIo->UsbAsyncInterruptTransfer (
+                      UsbIo,
+                      EndpointAddr,
+                      TRUE,
+                      PollingInterval,
+                      PacketSize,
+                      KeyboardHandler,
+                      UsbKeyboardDevice
+                      );
+  }
 
   if (EFI_ERROR (Status)) {
     LOG_ERROR ("USB async interrupt transfer failed: %r", Status);

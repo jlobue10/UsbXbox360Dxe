@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "EfiKey.h"
 #include "KeyBoard.h"
 #include "AsusAllyDevice.h"
+#include "LegionGoDevice.h"
 
 //
 // USB Keyboard Driver Global Variables
@@ -203,11 +204,15 @@ USBKeyboardDriverBindingStart (
     // ASUS ROG Ally - DirectInput device
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_ASUS_ALLY;
     LOG_INFO ("Device type: ASUS ROG Ally (DirectInput)");
-    
+
     Status = InitializeAsusAlly (UsbIo);
     if (EFI_ERROR (Status)) {
       LOG_WARN ("ASUS ROG Ally initialization failed: %r (continuing anyway)", Status);
     }
+  } else if (IsLegionGoRaw (UsbIo)) {
+    // Legion Go 2 in a DInput-family mode - vendor raw HID reports
+    UsbKeyboardDevice->DeviceType = DEVICE_TYPE_LEGION_GO;
+    LOG_INFO ("Device type: Lenovo Legion Go 2 (vendor raw HID)");
   } else if (IsMsiClaw (UsbIo)) {
     // MSI Claw - Xbox 360 protocol with mode switching
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_XBOX360;

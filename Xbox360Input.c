@@ -16,6 +16,7 @@
 #include "KeyBoard.h"
 #include "EfiKey.h"
 #include "AsusAllyDevice.h"
+#include "LegionGoDevice.h"
 
 // Number of Xbox 360 buttons (16 bits, 0-15)
 //
@@ -730,6 +731,31 @@ KeyboardHandler (
     }
 
     // Use converted report for processing
+    Report = Xbox360Report;
+    DataLength = sizeof(Xbox360Report);
+  } else if (UsbKeyboardDevice->DeviceType == DEVICE_TYPE_LEGION_GO) {
+    //
+    // Legion Go 2 DInput-family modes: convert the vendor raw HID report
+    // (ID 0x74). Reports with any other ID -- config replies, touchpad
+    // packets from sibling interfaces -- are ignored; the first one is
+    // logged to aid verifying the layout from field logs.
+    //
+    Status = ConvertLegionGoToXbox360 (Data, DataLength, Xbox360Report);
+    if (EFI_ERROR (Status)) {
+      if (!UsbKeyboardDevice->NonXInputReportLogged) {
+        UsbKeyboardDevice->NonXInputReportLogged = TRUE;
+        LOG_INFO (
+          "Legion Go: ignoring non-0x74 report(s): len=%d bytes [%02X %02X %02X %02X]",
+          (UINT32)DataLength,
+          Report[0],
+          Report[1],
+          Report[2],
+          Report[3]
+          );
+      }
+      return EFI_SUCCESS;
+    }
+
     Report = Xbox360Report;
     DataLength = sizeof(Xbox360Report);
   } else {

@@ -14,6 +14,7 @@
 #include "Xbox360Log.h"
 #include "KeyBoard.h"
 #include "AsusAllyDevice.h"
+#include "LegionGoDevice.h"
 
 //
 // Known Xbox 360 compatible devices
@@ -247,6 +248,15 @@ IsUSBKeyboard (
   // These devices do not support XInput mode and require special handling
   //
   if (IsAsusAlly (UsbIo)) {
+    return TRUE;
+  }
+
+  //
+  // Priority 2: Legion Go 2 in a DInput-family mode (no XInput data
+  // interface exists) -- handled via Lenovo's vendor raw HID reports.
+  //
+  if (IsLegionGoRaw (UsbIo)) {
+    LOG_INFO ("Lenovo Legion Go 2 (DInput-family mode) detected");
     return TRUE;
   }
 

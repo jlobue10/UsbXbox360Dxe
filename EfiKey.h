@@ -51,6 +51,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 typedef enum {
   DEVICE_TYPE_XBOX360,      // Xbox 360 protocol devices
   DEVICE_TYPE_ASUS_ALLY,    // ASUS ROG Ally DirectInput devices
+  DEVICE_TYPE_LEGION_GO,    // Lenovo Legion Go 2 vendor raw HID (DInput modes)
   DEVICE_TYPE_GENERIC_HID   // Generic HID gamepad (future)
 } GAMEPAD_DEVICE_TYPE;
 

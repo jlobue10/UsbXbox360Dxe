@@ -689,6 +689,60 @@ ProcessLegionGoTouch (
   }
 }
 
+//
+// One-shot raw-report dump for ANY device type: log the first bytes of each
+// distinct report ID (Data[0]) exactly once per device instance, tagged with
+// the interface number, before any decoding. Because every interface of a
+// controller binds as its own USB_KB_DEV, a single field capture then shows
+// exactly what each interface sends and its full byte layout. This is needed on
+// the standard Xbox 360 (XInput) path too: e.g. the Legion Go 2 in "XInput
+// mode" (PID 0x61EB) is decoded here, and a buttons-dead symptom can only be
+// explained by seeing the raw report. Compiled out of RELEASE with the logging.
+//
+#define RAW_DUMP_MAX_BYTES  40
+
+STATIC
+VOID
+DumpRawReportOnce (
+  IN  USB_KB_DEV  *Device,
+  IN  UINT8       *Data,
+  IN  UINTN       DataLength
+  )
+{
+  UINT8   ReportId;
+  UINTN   Count;
+  UINTN   Index;
+  UINTN   Pos;
+  CHAR8   HexLine[RAW_DUMP_MAX_BYTES * 3 + 1];
+
+  if ((Data == NULL) || (DataLength == 0)) {
+    return;
+  }
+
+  ReportId = Data[0];
+  if ((Device->RawReportDumpSeen[ReportId >> 3] & (1u << (ReportId & 7))) != 0) {
+    return;  // this report ID has already been dumped on this interface
+  }
+  Device->RawReportDumpSeen[ReportId >> 3] |= (UINT8)(1u << (ReportId & 7));
+
+  Count = (DataLength < RAW_DUMP_MAX_BYTES) ? DataLength : RAW_DUMP_MAX_BYTES;
+
+  Pos = 0;
+  for (Index = 0; Index < Count; Index++) {
+    Pos += AsciiSPrint (HexLine + Pos, sizeof (HexLine) - Pos, "%02x ", Data[Index]);
+  }
+
+  LOG_INFO (
+    "Raw report: type %u, iface %u, report id 0x%02X, len %u, first %u bytes: %a",
+    (UINT32)Device->DeviceType,
+    (UINT32)Device->InterfaceDescriptor.InterfaceNumber,
+    ReportId,
+    (UINT32)DataLength,
+    (UINT32)Count,
+    HexLine
+    );
+}
+
 /**
   Handler function for Xbox 360 controller asynchronous interrupt transfer.
 
@@ -802,6 +856,16 @@ KeyboardHandler (
   }
 
   Report = (UINT8 *)Data;
+
+  //
+  // One-shot raw-report dump (all device types), before any decoding: capture
+  // the first bytes of each distinct report ID on this interface, so a single
+  // debug log shows exactly what the controller sends. This is what makes the
+  // XInput-mode Legion Go 2 (PID 0x61EB, decoded on the standard path below)
+  // diagnosable -- the sticks-work/buttons-dead symptom can only be read off
+  // the raw report layout.
+  //
+  DumpRawReportOnce (UsbKeyboardDevice, Report, DataLength);
 
   //
   // Handle different device types

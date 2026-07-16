@@ -41,6 +41,8 @@
   Xbox360Input.h
   AsusAllyDevice.c
   AsusAllyDevice.h
+  LegionGoDevice.c
+  LegionGoDevice.h
 
 [Packages]
   MdePkg/MdePkg.dec

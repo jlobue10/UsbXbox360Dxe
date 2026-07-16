@@ -51,6 +51,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 typedef enum {
   DEVICE_TYPE_XBOX360,      // Xbox 360 protocol devices
   DEVICE_TYPE_ASUS_ALLY,    // ASUS ROG Ally DirectInput devices
+  DEVICE_TYPE_LEGION_GO,    // Lenovo Legion Go 2 vendor raw HID (DInput modes)
   DEVICE_TYPE_GENERIC_HID   // Generic HID gamepad (future)
 } GAMEPAD_DEVICE_TYPE;
 
@@ -161,6 +162,7 @@ typedef struct {
   BOOLEAN                              ScrollOn;
   XBOX360_INPUT_STATE                  XboxState;
   GAMEPAD_DEVICE_TYPE                  DeviceType;  // Type of gamepad device
+  BOOLEAN                              NonXInputReportLogged;  // one-shot diagnostic in KeyboardHandler
 
   EFI_EVENT                            TimerEvent;
   EFI_EVENT                            PollingTimer;  // Timer for ASUS Ally polling

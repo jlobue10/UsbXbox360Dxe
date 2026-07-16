@@ -10,12 +10,18 @@
   Xbox 360 data interface and uses the standard path.
 
   Report layout (byte offsets include the leading report ID, matching the
-  hhd-dev/hhd Legion Go driver's LGO_RAW_INTERFACE_BTN_MAP/AXIS_MAP):
+  hhd-dev/hhd Legion Go driver's LGO_RAW_INTERFACE_BTN_MAP/AXIS_MAP; note
+  that hhd's BM bit indices are MSB-first -- index n = mask (1 << (7 - n)) --
+  and its "m8" axis type is an unsigned byte resting at 0x80):
     [0]      report ID 0x74
-    [14..17] left X / left Y / right X / right Y (signed 8-bit, centered 0)
-    [18]     bit2 LS click, bit3 RS click, bits4-7 dpad up/down/left/right
-    [19]     bit0 A, bit1 B, bit2 X, bit3 Y, bit4 LB, bit6 RB
-    [20]     bit6 Select/View, bit7 Start/Menu (bits 0-5: back paddles)
+    [14..17] left X / left Y / right X / right Y (unsigned 8-bit, centered
+             128; X positive right, Y positive DOWN -- inverted vs. the
+             Xbox 360 wire format)
+    [18]     masks: 0x80 Legion/mode, 0x40 share, 0x20 LS click,
+             0x10 RS click, 0x08/0x04/0x02/0x01 dpad up/down/left/right
+    [19]     masks: 0x80 A, 0x40 B, 0x20 X, 0x10 Y, 0x08 LB, 0x04 LT-press,
+             0x02 RB, 0x01 RT-press
+    [20]     masks: 0x02 Select/View, 0x01 Start/Menu (rest: back paddles)
     [22]     right trigger (0-255)
     [23]     left trigger (0-255)
 

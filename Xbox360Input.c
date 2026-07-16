@@ -689,6 +689,59 @@ ProcessLegionGoTouch (
   }
 }
 
+//
+// One-shot raw-report dump for the Legion Go path: log the first bytes of each
+// distinct report ID (Data[0]) exactly once per device instance, tagged with
+// the interface number. Because every interface of the controller binds as its
+// own USB_KB_DEV, a single field capture then shows which report streams arrive
+// on which interface and their full byte layout -- both the accepted gamepad
+// stream (to verify button offsets) and any stream the converter rejects (to
+// confirm whether the button-bearing xinput-data report 0x04 arrives at all).
+// Compiled out of RELEASE builds along with the rest of the logging.
+//
+#define LGO_DUMP_MAX_BYTES  40
+
+STATIC
+VOID
+DumpLegionReportOnce (
+  IN  USB_KB_DEV  *Device,
+  IN  UINT8       *Data,
+  IN  UINTN       DataLength
+  )
+{
+  UINT8   ReportId;
+  UINTN   Count;
+  UINTN   Index;
+  UINTN   Pos;
+  CHAR8   HexLine[LGO_DUMP_MAX_BYTES * 3 + 1];
+
+  if ((Data == NULL) || (DataLength == 0)) {
+    return;
+  }
+
+  ReportId = Data[0];
+  if ((Device->LgoReportDumpSeen[ReportId >> 3] & (1u << (ReportId & 7))) != 0) {
+    return;  // this report ID has already been dumped on this interface
+  }
+  Device->LgoReportDumpSeen[ReportId >> 3] |= (UINT8)(1u << (ReportId & 7));
+
+  Count = (DataLength < LGO_DUMP_MAX_BYTES) ? DataLength : LGO_DUMP_MAX_BYTES;
+
+  Pos = 0;
+  for (Index = 0; Index < Count; Index++) {
+    Pos += AsciiSPrint (HexLine + Pos, sizeof (HexLine) - Pos, "%02x ", Data[Index]);
+  }
+
+  LOG_INFO (
+    "Legion Go raw report: iface %u, report id 0x%02X, len %u, first %u bytes: %a",
+    (UINT32)Device->InterfaceDescriptor.InterfaceNumber,
+    ReportId,
+    (UINT32)DataLength,
+    (UINT32)Count,
+    HexLine
+    );
+}
+
 /**
   Handler function for Xbox 360 controller asynchronous interrupt transfer.
 
@@ -828,6 +881,12 @@ KeyboardHandler (
     // sibling interfaces -- is ignored; the first such report is logged to
     // aid verifying layouts from field logs.
     //
+    // Dump each distinct report ID's raw bytes once (before conversion, so
+    // rejected streams are captured too) -- this is what makes a single debug
+    // log conclusive about which interface carries the buttons.
+    //
+    DumpLegionReportOnce (UsbKeyboardDevice, Report, DataLength);
+
     Status = ConvertLegionGoToXbox360 (Data, DataLength, Xbox360Report, &LgoTouch);
     if (EFI_ERROR (Status)) {
       if (!UsbKeyboardDevice->NonXInputReportLogged) {

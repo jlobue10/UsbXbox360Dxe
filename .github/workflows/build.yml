@@ -59,14 +59,17 @@ jobs:
         export PACKAGES_PATH=$WORKSPACE
         source edksetup.sh
         build -a X64 -t GCC5 -b RELEASE -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
-        # ESP file logging is compiled out of RELEASE builds; also build DEBUG
-        # so the logging code path stays compile-tested.
+        # ESP file logging is compiled out of RELEASE builds; the DEBUG build
+        # keeps it and ships as UsbXbox360Dxe-debug.efi so field issues can be
+        # diagnosed from EFI\Xbox360\driver_*.log (e.g. capturing an unknown
+        # gamepad's raw report shape to write a converter for it).
         build -a X64 -t GCC5 -b DEBUG -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
-        
+
     - name: Prepare artifact
       run: |
         mkdir -p output
         cp edk2/Build/MdeModule/RELEASE_GCC5/X64/UsbXbox360Dxe.efi output/
+        cp edk2/Build/MdeModule/DEBUG_GCC5/X64/UsbXbox360Dxe.efi output/UsbXbox360Dxe-debug.efi
         cp config.ini.example output/
         cp README.md output/
         
@@ -82,6 +85,7 @@ jobs:
       with:
         files: |
           output/UsbXbox360Dxe.efi
+          output/UsbXbox360Dxe-debug.efi
           output/config.ini.example
           output/README.md
         generate_release_notes: true

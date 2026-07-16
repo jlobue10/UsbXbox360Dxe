@@ -181,6 +181,20 @@ The driver will log detected devices to debug output.
 
 See `KeyBoard.c` for the complete list of supported devices.
 
+### Scope: gamepads only, not built-in touchscreens
+
+This driver binds `EFI_USB_IO_PROTOCOL`, so it only sees devices on the USB
+bus. Handheld built-in touchscreens are **not** USB devices: on the ROG Xbox
+Ally / Ally X the panel is a Goodix **GT7868Q** on the SoC's **I2C** bus,
+serviced by `i2c-hid`/`hid-multitouch` under Linux. It never enumerates over
+USB, so this driver structurally cannot see it, and no amount of report parsing
+here can add touch support. Driving it in the pre-boot menu would require a
+separate I2C controller + I2C-HID UEFI stack producing
+`EFI_ABSOLUTE_POINTER_PROTOCOL` (which rEFInd already consumes natively) — a
+distinct project, and one dependent on the firmware leaving the I2C controller
+usable before OS handoff. External **USB** touchscreens are a different case and
+could in principle be supported, but the built-in handheld panels cannot.
+
 ## Debug Logging
 
 The driver automatically logs diagnostic information to your ESP partition for troubleshooting.

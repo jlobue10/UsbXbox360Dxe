@@ -566,10 +566,15 @@ ProcessStickChanges (
       );
     }
     
-    // Update mouse state if pointer protocol is installed
+    //
+    // Accumulate rather than assign: GetState zeroes the deltas after each
+    // successful read, and accumulation lets other movement sources (the
+    // Legion Go 2 touchpad) merge instead of being overwritten by a
+    // stick-at-rest zero on the next report.
+    //
     if (Device->SimplePointerInstalled) {
-      Device->SimplePointerState.RelativeMovementX = DeltaX;
-      Device->SimplePointerState.RelativeMovementY = DeltaY;
+      Device->SimplePointerState.RelativeMovementX += DeltaX;
+      Device->SimplePointerState.RelativeMovementY += DeltaY;
     }
   }
   
@@ -591,7 +596,7 @@ ProcessStickChanges (
     }
     
     if (Device->SimplePointerInstalled) {
-      Device->SimplePointerState.RelativeMovementZ = ScrollDelta;
+      Device->SimplePointerState.RelativeMovementZ += ScrollDelta;
     }
   }
   
@@ -604,6 +609,84 @@ ProcessStickChanges (
   // The key is that CalculateMouseMovement should return non-zero when stick
   // is outside deadzone, which is already handled by "Speed = 1" minimum.
   //
+}
+
+//
+// Legion Go 2 touchpad-as-mouse tuning. The xinput data stream reports at
+// ~40 Hz, so 10 reports ~= 250 ms (the classic tap-to-click window) and the
+// synthetic click is held for 4 reports (~100 ms) so the menu's polling is
+// guaranteed to observe the press before the release.
+//
+#define LGO_TAP_MAX_REPORTS   10
+#define LGO_TAP_HOLD_FRAMES   4
+
+/**
+  Translate a Legion Go 2 absolute touchpad sample into Simple Pointer
+  relative movement plus tap-to-click.
+
+  Called once per converted gamepad-state report, AFTER the trigger and
+  stick processing, so its pointer-state writes merge with (rather than get
+  overwritten by) the stick-mouse path.
+
+  @param  Device  The device instance
+  @param  Touch   Touch sample from ConvertLegionGoToXbox360; ignored
+                  unless Valid
+**/
+STATIC
+VOID
+ProcessLegionGoTouch (
+  IN  USB_KB_DEV       *Device,
+  IN  LEGION_GO_TOUCH  *Touch
+  )
+{
+  BOOLEAN  Touching;
+  INT32    DeltaX;
+  INT32    DeltaY;
+
+  if (!Touch->Valid || !Device->SimplePointerInstalled) {
+    return;
+  }
+
+  //
+  // 0/0 means "not touched" (the pad never reports 0 on both axes while a
+  // finger rests on it -- same convention InputPlumber relies on).
+  //
+  Touching = (Touch->X != 0) && (Touch->Y != 0);
+
+  if (Touching) {
+    if (Device->LgoTouchWasTouching) {
+      //
+      // Relative movement between consecutive samples. The pad spans
+      // ~0..1000 units; raw deltas give roughly two screen widths per
+      // full-pad swipe at rEFInd's default mouse_speed, a comfortable rate.
+      //
+      DeltaX = (INT32)Touch->X - (INT32)Device->LgoTouchLastX;
+      DeltaY = (INT32)Touch->Y - (INT32)Device->LgoTouchLastY;
+      Device->SimplePointerState.RelativeMovementX += DeltaX;
+      Device->SimplePointerState.RelativeMovementY += DeltaY;
+    }
+    Device->LgoTouchLastX = Touch->X;
+    Device->LgoTouchLastY = Touch->Y;
+    Device->LgoTouchReports++;
+  } else {
+    if (Device->LgoTouchWasTouching &&
+        (Device->LgoTouchReports <= LGO_TAP_MAX_REPORTS)) {
+      Device->LgoTapFrames = LGO_TAP_HOLD_FRAMES;
+    }
+    Device->LgoTouchReports = 0;
+  }
+  Device->LgoTouchWasTouching = Touching;
+
+  //
+  // Synthetic tap click: hold LeftButton for a few reports, then release.
+  // The trigger path only writes the pointer buttons on trigger-state
+  // changes, so forcing the state here doesn't fight it outside the rare
+  // case of a tap while a mouse-mapped trigger is held.
+  //
+  if (Device->LgoTapFrames > 0) {
+    Device->LgoTapFrames--;
+    Device->SimplePointerState.LeftButton = (Device->LgoTapFrames > 0);
+  }
 }
 
 /**
@@ -640,8 +723,11 @@ KeyboardHandler (
   UINT32               UsbStatus;
   EFI_STATUS           Status;
   UINT8                Xbox360Report[20];  // Converted report buffer
-  
+  LEGION_GO_TOUCH      LgoTouch;           // Touch sample (Legion Go 2 only)
+
   ASSERT (Context != NULL);
+
+  LgoTouch.Valid = FALSE;
 
   UsbKeyboardDevice = (USB_KB_DEV *)Context;
   UsbIo             = UsbKeyboardDevice->UsbIo;
@@ -735,17 +821,19 @@ KeyboardHandler (
     DataLength = sizeof(Xbox360Report);
   } else if (UsbKeyboardDevice->DeviceType == DEVICE_TYPE_LEGION_GO) {
     //
-    // Legion Go 2 DInput-family modes: convert the vendor raw HID report
-    // (ID 0x74). Reports with any other ID -- config replies, touchpad
-    // packets from sibling interfaces -- are ignored; the first one is
-    // logged to aid verifying the layout from field logs.
+    // Legion Go 2 DInput-family modes: convert the gamepad-state report of
+    // either vendor stream (legacy 0x74-first, or the interface-2 xinput
+    // data stream -- the only stream that carries the buttons in these
+    // modes; see LegionGoDevice.h). Anything else -- config replies, other
+    // sibling interfaces -- is ignored; the first such report is logged to
+    // aid verifying layouts from field logs.
     //
-    Status = ConvertLegionGoToXbox360 (Data, DataLength, Xbox360Report);
+    Status = ConvertLegionGoToXbox360 (Data, DataLength, Xbox360Report, &LgoTouch);
     if (EFI_ERROR (Status)) {
       if (!UsbKeyboardDevice->NonXInputReportLogged) {
         UsbKeyboardDevice->NonXInputReportLogged = TRUE;
         LOG_INFO (
-          "Legion Go: ignoring non-0x74 report(s): len=%d bytes [%02X %02X %02X %02X]",
+          "Legion Go: ignoring unrecognized report(s): len=%d bytes [%02X %02X %02X %02X]",
           (UINT32)DataLength,
           Report[0],
           Report[1],
@@ -900,6 +988,12 @@ KeyboardHandler (
       OldLeftX, OldLeftY, OldRightX, OldRightY
     );
   }
+
+  //
+  // Legion Go 2: touchpad-as-mouse (after stick processing, so both
+  // pointer-movement sources accumulate instead of overwriting each other)
+  //
+  ProcessLegionGoTouch (UsbKeyboardDevice, &LgoTouch);
 
   UsbKeyboardDevice->RepeatKey = 0;
   if (UsbKeyboardDevice->RepeatTimer != NULL) {

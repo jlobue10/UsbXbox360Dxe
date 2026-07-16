@@ -1,29 +1,49 @@
 /** @file
-  Lenovo Legion Go 2 controller support (vendor raw HID interface).
+  Lenovo Legion Go 2 controller support (vendor raw HID interfaces).
 
-  The Legion Go 2's controllers expose Lenovo's vendor HID interface (usage
-  page 0xFFA0) in every controller mode; it delivers 64-byte reports with
-  report ID 0x74 carrying the full combined gamepad state. Converting those
-  reports gives boot-menu input in the DInput-family modes (PIDs
-  0x61EC/0x61ED/0x61EE), which have no XInput data interface. The XInput mode
-  (PID 0x61EB) is intentionally NOT handled here -- it exposes a genuine
-  Xbox 360 data interface and uses the standard path.
+  In the DInput-family modes (PIDs 0x61EC/0x61ED/0x61EE, no XInput data
+  interface) the Legion Go 2 exposes TWO Lenovo vendor HID input streams on
+  different interfaces, and this driver binds every interface of the device,
+  so the converter must recognize both by their framing:
 
-  Report layout (byte offsets include the leading report ID, matching the
-  hhd-dev/hhd Legion Go driver's LGO_RAW_INTERFACE_BTN_MAP/AXIS_MAP; note
-  that hhd's BM bit indices are MSB-first -- index n = mask (1 << (7 - n)) --
-  and its "m8" axis type is an unsigned byte resting at 0x80):
-    [0]      report ID 0x74
+  1. The "xinput data" stream (usage page 0xFFA0, usage 0x0003, interface 2;
+     framing and layout verified from ShadowBlip/InputPlumber's annotated
+     Legion Go 2 hid-recorder captures, drivers/lego/hid_report.rs):
+       [0]  report ID 0x04
+       [1]  report size (0x3C = 60)
+       [2]  command ID 0x74 (only reports with this command are gamepad
+            state; other commands are config replies)
+       [9]  gamepad mode (0 xinput / 1 dinput / 2 fps)
+     This stream carries the full gamepad state -- INCLUDING all buttons --
+     in every controller mode, at ~40 Hz. It is the only place the buttons
+     appear in the DInput-family modes: the legacy stream below carries
+     them only in XInput mode, which is why rEFInd_GUI issue #23 reported
+     working sticks/triggers but completely dead buttons.
+
+  2. The legacy raw stream (usage page 0xFFA0, usage 0x0001; layout from
+     hhd's LGO_RAW_INTERFACE_BTN_MAP/AXIS_MAP, which is only verified in
+     XInput mode):
+       [0]  report ID 0x74
+     In the DInput-family modes this stream still carries live sticks and
+     triggers but its button bytes stay zero (observed in the field,
+     rEFInd_GUI issue #23).
+
+  Both streams use the SAME absolute offsets for the shared payload:
     [14..17] left X / left Y / right X / right Y (unsigned 8-bit, centered
              128; X positive right, Y positive DOWN -- inverted vs. the
              Xbox 360 wire format)
-    [18]     masks: 0x80 Legion/mode, 0x40 share, 0x20 LS click,
-             0x10 RS click, 0x08/0x04/0x02/0x01 dpad up/down/left/right
+    [18]     masks: 0x80 Legion/mode, 0x40 share/quick-access, 0x20 LS
+             click, 0x10 RS click, 0x08/0x04/0x02/0x01 dpad U/D/L/R
     [19]     masks: 0x80 A, 0x40 B, 0x20 X, 0x10 Y, 0x08 LB, 0x04 LT-press,
              0x02 RB, 0x01 RT-press
-    [20]     masks: 0x02 Select/View, 0x01 Start/Menu (rest: back paddles)
-    [22]     right trigger (0-255)
-    [23]     left trigger (0-255)
+    [20]     masks: 0x80/0x40/0x20 Y1/Y2/Y3, 0x10/0x08/0x04 M1/M2/M3,
+             0x02 Select/View, 0x01 Start/Menu
+    [22..23] analog triggers (0-255). Order differs per stream: the xinput
+             data stream is LT@22/RT@23 (InputPlumber captures), the legacy
+             stream is RT@22/LT@23 (hhd map, and field behavior: R2 acting
+             as MouseLeft through the legacy path)
+    [26..29] touchpad X/Y (unsigned 16-bit BIG-endian, ~0..1000 range,
+             0/0 when not touched) -- xinput data stream only
 
   Copyright (c) 2026, jlobue10. All rights reserved.<BR>
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -40,12 +60,25 @@
 #define LEGION_GO2_PID_DUAL_DINPUT 0x61ED
 #define LEGION_GO2_PID_FPS         0x61EE
 
-#define LEGION_GO_RAW_REPORT_ID    0x74
-#define LEGION_GO_RAW_REPORT_MIN   24
+#define LEGION_GO_RAW_REPORT_ID     0x74  // legacy stream (usage 0xFFA0/0x0001)
+#define LEGION_GO_XDATA_REPORT_ID   0x04  // xinput data stream (usage 0xFFA0/0x0003)
+#define LEGION_GO_XDATA_CMD         0x74  // gamepad-state command, at byte 2
+#define LEGION_GO_RAW_REPORT_MIN    24
+#define LEGION_GO_TOUCH_REPORT_MIN  30    // through touchpad bytes 26..29
+
+///
+/// Touchpad sample extracted from an xinput-data-stream report.
+/// X/Y are absolute pad coordinates; 0/0 means "not touched".
+///
+typedef struct {
+  BOOLEAN  Valid;
+  UINT16   X;
+  UINT16   Y;
+} LEGION_GO_TOUCH;
 
 /**
   Check if the given USB device is a Legion Go 2 controller in a mode handled
-  via the vendor raw HID interface (DInput / dual DInput / FPS).
+  via the vendor raw HID interfaces (DInput / dual DInput / FPS).
 
   @param  UsbIo    Pointer to USB I/O Protocol
 
@@ -58,11 +91,14 @@ IsLegionGoRaw (
   );
 
 /**
-  Convert a Legion Go vendor raw HID report (ID 0x74) to Xbox 360 format.
+  Convert a Legion Go vendor HID report (either stream) to Xbox 360 format.
 
   @param  RawReport   Raw interrupt report as received (report ID at byte 0)
   @param  ReportLen   Length of the raw report
   @param  XboxReport  Receives the 20-byte Xbox 360 format report
+  @param  Touch       Optional; receives the report's touchpad sample.
+                      Touch->Valid stays FALSE when the report carries no
+                      touch data (legacy stream, or report too short)
 
   @retval EFI_SUCCESS            Converted successfully
   @retval EFI_INVALID_PARAMETER  Not a gamepad state report (wrong ID/length);
@@ -70,9 +106,10 @@ IsLegionGoRaw (
 **/
 EFI_STATUS
 ConvertLegionGoToXbox360 (
-  IN  VOID    *RawReport,
-  IN  UINTN   ReportLen,
-  OUT UINT8   *XboxReport
+  IN  VOID             *RawReport,
+  IN  UINTN            ReportLen,
+  OUT UINT8            *XboxReport,
+  OUT LEGION_GO_TOUCH  *Touch  OPTIONAL
   );
 
 #endif

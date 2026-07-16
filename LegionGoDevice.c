@@ -37,8 +37,9 @@ IsLegionGoRaw (
   // Only the DInput-family modes, which carry no XInput data interface. The
   // XInput mode (0x61EB) goes through the standard Xbox 360 path instead.
   // Every interface of a matching device is accepted here; the converter
-  // only acts on report ID 0x74, so sibling interfaces (config, touchpad)
-  // bind but stay inert.
+  // only acts on the two known gamepad-state framings (see the file header
+  // in LegionGoDevice.h), so other sibling interfaces (DInput gamepad,
+  // keyboard, mouse) bind but stay inert.
   //
   return (DeviceDescriptor.IdProduct == LEGION_GO2_PID_DINPUT) ||
          (DeviceDescriptor.IdProduct == LEGION_GO2_PID_DUAL_DINPUT) ||
@@ -79,14 +80,22 @@ ScaleStickAxis (
 
 EFI_STATUS
 ConvertLegionGoToXbox360 (
-  IN  VOID    *RawReport,
-  IN  UINTN   ReportLen,
-  OUT UINT8   *XboxReport
+  IN  VOID             *RawReport,
+  IN  UINTN            ReportLen,
+  OUT UINT8            *XboxReport,
+  OUT LEGION_GO_TOUCH  *Touch  OPTIONAL
   )
 {
-  UINT8   *Raw;
-  UINT16  XboxButtons;
-  INT16   StickValue;
+  UINT8    *Raw;
+  UINT16   XboxButtons;
+  INT16    StickValue;
+  BOOLEAN  XDataStream;
+
+  if (Touch != NULL) {
+    Touch->Valid = FALSE;
+    Touch->X     = 0;
+    Touch->Y     = 0;
+  }
 
   if ((RawReport == NULL) || (XboxReport == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -95,10 +104,21 @@ ConvertLegionGoToXbox360 (
   Raw = (UINT8 *)RawReport;
 
   //
-  // Accept only the gamepad state report; anything else on this or a
-  // sibling interface (config replies, touchpad packets) is ignored.
+  // Accept the gamepad state report of either vendor stream (see the file
+  // header in LegionGoDevice.h); anything else on this or a sibling
+  // interface (config replies, touchpad/keyboard interfaces) is ignored.
+  // The buttons only ever appear on the xinput data stream in the
+  // DInput-family modes, so that stream must not be filtered out.
   //
-  if ((ReportLen < LEGION_GO_RAW_REPORT_MIN) || (Raw[0] != LEGION_GO_RAW_REPORT_ID)) {
+  if (ReportLen < LEGION_GO_RAW_REPORT_MIN) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if ((Raw[0] == LEGION_GO_XDATA_REPORT_ID) && (Raw[2] == LEGION_GO_XDATA_CMD)) {
+    XDataStream = TRUE;
+  } else if (Raw[0] == LEGION_GO_RAW_REPORT_ID) {
+    XDataStream = FALSE;
+  } else {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -108,12 +128,10 @@ ConvertLegionGoToXbox360 (
 
   //
   // Buttons -> Xbox 360 button word (see AsusAllyDevice.c for the layout).
-  //
-  // The raw report's button bits are MSB-first: hhd's LGO_RAW_INTERFACE_BTN_MAP
-  // bit index n means mask (1 << (7 - n)) within the byte (get_button() in
-  // hhd's controller/lib/common.py). v1.5.0/1.5.1 read them LSB-first, which
-  // mirrored every button within its byte (A read the digital-RT bit, D-pad
-  // read the stick clicks, ...).
+  // Both streams share these offsets and (MSB-first) masks, confirmed by
+  // InputPlumber's per-button hid-recorder captures. In the DInput-family
+  // modes only the xinput data stream actually populates them; the legacy
+  // stream's button bytes stay zero, which is harmless here.
   //
   XboxButtons = 0;
 
@@ -142,10 +160,18 @@ ConvertLegionGoToXbox360 (
   XboxReport[3] = (UINT8)((XboxButtons >> 8) & 0xFF);
 
   //
-  // Triggers: already 0-255. Note the raw report orders RT before LT.
+  // Triggers: already 0-255. The two streams order them differently: the
+  // xinput data stream is LT@22/RT@23 (InputPlumber's "Left Trigger"/"Right
+  // Trigger" captures), the legacy stream RT@22/LT@23 (hhd's axis map, and
+  // the field observation that R2 produced MouseLeft through this path).
   //
-  XboxReport[4] = Raw[23];  // Left trigger
-  XboxReport[5] = Raw[22];  // Right trigger
+  if (XDataStream) {
+    XboxReport[4] = Raw[22];  // Left trigger
+    XboxReport[5] = Raw[23];  // Right trigger
+  } else {
+    XboxReport[4] = Raw[23];  // Left trigger
+    XboxReport[5] = Raw[22];  // Right trigger
+  }
 
   //
   // Sticks: raw bytes are unsigned, resting at 0x80 (hhd axis type "m8" =
@@ -165,6 +191,16 @@ ConvertLegionGoToXbox360 (
   CopyMem (&XboxReport[10], &StickValue, sizeof (INT16));
   StickValue = ScaleStickAxis (Raw[17], TRUE);   // Right Y
   CopyMem (&XboxReport[12], &StickValue, sizeof (INT16));
+
+  //
+  // Touchpad (xinput data stream only): absolute pad coordinates as
+  // big-endian 16-bit values, 0/0 when the pad is not touched.
+  //
+  if ((Touch != NULL) && XDataStream && (ReportLen >= LEGION_GO_TOUCH_REPORT_MIN)) {
+    Touch->X     = (UINT16)(((UINT16)Raw[26] << 8) | Raw[27]);
+    Touch->Y     = (UINT16)(((UINT16)Raw[28] << 8) | Raw[29]);
+    Touch->Valid = TRUE;
+  }
 
   return EFI_SUCCESS;
 }

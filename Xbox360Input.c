@@ -728,10 +728,43 @@ KeyboardHandler (
     if (EFI_ERROR (Status)) {
       return EFI_SUCCESS;
     }
-    
+
     // Use converted report for processing
     Report = Xbox360Report;
     DataLength = sizeof(Xbox360Report);
+  } else {
+    //
+    // Standard Xbox 360 protocol: an input report is message type 0x00 with
+    // packet size 0x14 (20 bytes). Anything else must be ignored -- LED and
+    // rumble status messages, and above all the HID DirectInput reports sent
+    // by table-listed devices that enumerate outside XInput mode (e.g. the
+    // Lenovo Legion Go 2 in its DInput/detached/FPS modes). DirectInput
+    // reports carry analog axes at these offsets, resting near 0x80; parsed
+    // as button and trigger state below they become a constant stream of
+    // phantom presses and mouse clicks that instantly "select" whatever the
+    // boot menu has highlighted (observed on the Legion Go 2: rEFInd's menu
+    // flashes and an OS boots with no user input -- rEFInd_GUI issue #23).
+    // Log the first rejected report's shape so a proper converter for the
+    // device can be written from field logs.
+    //
+    if ((Report[0] != 0x00) || (Report[1] != 0x14)) {
+      if (!UsbKeyboardDevice->NonXInputReportLogged) {
+        UsbKeyboardDevice->NonXInputReportLogged = TRUE;
+        LOG_WARN (
+          "Ignoring non-XInput report(s): len=%d bytes [%02X %02X %02X %02X %02X %02X %02X %02X]; this device likely needs a DirectInput converter",
+          (UINT32)DataLength,
+          Report[0],
+          Report[1],
+          Report[2],
+          Report[3],
+          (DataLength > 4) ? Report[4] : 0,
+          (DataLength > 5) ? Report[5] : 0,
+          (DataLength > 6) ? Report[6] : 0,
+          (DataLength > 7) ? Report[7] : 0
+          );
+      }
+      return EFI_SUCCESS;
+    }
   }
 
   //

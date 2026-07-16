@@ -161,6 +161,7 @@ typedef struct {
   BOOLEAN                              ScrollOn;
   XBOX360_INPUT_STATE                  XboxState;
   GAMEPAD_DEVICE_TYPE                  DeviceType;  // Type of gamepad device
+  BOOLEAN                              NonXInputReportLogged;  // one-shot diagnostic in KeyboardHandler
 
   EFI_EVENT                            TimerEvent;
   EFI_EVENT                            PollingTimer;  // Timer for ASUS Ally polling

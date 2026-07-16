@@ -265,6 +265,21 @@ IsUSBKeyboard (
     if ((DeviceDescriptor.IdVendor == mXbox360DeviceList[Index].VendorId) &&
         (DeviceDescriptor.IdProduct == mXbox360DeviceList[Index].ProductId))
     {
+      //
+      // VID/PID matched -- but driver binding is per USB *interface*, and
+      // multi-interface pads (Legion Go 2 & co.) also expose HID config and
+      // touchpad interfaces whose reports must never be parsed as Xbox 360
+      // state. Bind only the XInput data interface. The MSI Claw is exempt:
+      // it enumerates in DirectInput mode and needs a binding to receive the
+      // XInput mode-switch command (it re-enumerates afterwards).
+      //
+      if (!IsXInputInterface (UsbIo) && !IsMsiClaw (UsbIo)) {
+        LOG_INFO ("Device VID:0x%04X PID:0x%04X matched, but this interface is not an XInput data interface; skipping it",
+                  DeviceDescriptor.IdVendor,
+                  DeviceDescriptor.IdProduct);
+        return FALSE;
+      }
+
       // Found a match! Log the details
       LOG_INFO ("MATCH FOUND! Device: %s (VID:0x%04X PID:0x%04X)%s",
                 mXbox360DeviceList[Index].Description,
@@ -291,8 +306,48 @@ IsUSBKeyboard (
 }
 
 /**
+  Check whether the bound USB interface is an XInput gamepad data interface.
+
+  UEFI driver binding runs once per USB *interface*, and multi-interface
+  gamepads (e.g. the Lenovo Legion Go 2: XInput data + HID config + HID
+  touchpad) previously matched on VID/PID alone, so this driver also bound
+  their HID interfaces and parsed those reports as Xbox 360 state -- the
+  source of the phantom-input "menu clicks itself" bug (rEFInd_GUI issue
+  #23). An Xbox 360 protocol data interface is vendor-specific class 0xFF,
+  subclass 0x5D, protocol 0x01 (wired) or 0x81 (wireless receiver) -- the
+  same match the Linux xpad driver uses.
+
+  @param  UsbIo    Pointer to USB I/O Protocol (one interface's instance)
+
+  @retval TRUE     Interface carries Xbox 360 (XInput) gamepad data
+  @retval FALSE    Any other interface (HID config/touchpad/audio/...)
+**/
+BOOLEAN
+IsXInputInterface (
+  IN  EFI_USB_IO_PROTOCOL  *UsbIo
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_USB_INTERFACE_DESCRIPTOR  InterfaceDescriptor;
+
+  if (UsbIo == NULL) {
+    return FALSE;
+  }
+
+  Status = UsbIo->UsbGetInterfaceDescriptor (UsbIo, &InterfaceDescriptor);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  return (InterfaceDescriptor.InterfaceClass == 0xFF) &&
+         (InterfaceDescriptor.InterfaceSubClass == 0x5D) &&
+         ((InterfaceDescriptor.InterfaceProtocol == 0x01) ||
+          (InterfaceDescriptor.InterfaceProtocol == 0x81));
+}
+
+/**
   Check if the given USB device is an MSI Claw controller.
-  
+
   @param  UsbIo    Pointer to USB I/O Protocol
 
   @retval TRUE     Device is MSI Claw

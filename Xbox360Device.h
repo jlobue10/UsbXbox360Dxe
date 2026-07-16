@@ -81,8 +81,22 @@ IsUSBKeyboard (
   );
 
 /**
+  Check whether the bound USB interface is an XInput gamepad data interface
+  (vendor class 0xFF, subclass 0x5D, protocol 0x01 wired / 0x81 wireless).
+
+  @param  UsbIo    Pointer to USB I/O Protocol (one interface's instance)
+
+  @retval TRUE     Interface carries Xbox 360 (XInput) gamepad data
+  @retval FALSE    Any other interface
+**/
+BOOLEAN
+IsXInputInterface (
+  IN  EFI_USB_IO_PROTOCOL  *UsbIo
+  );
+
+/**
   Check if the given USB device is an MSI Claw controller.
-  
+
   @param  UsbIo    Pointer to USB I/O Protocol
 
   @retval TRUE     Device is MSI Claw

@@ -44,6 +44,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "Xbox360Device.h"
 #include "Xbox360Config.h"
 #include "Xbox360Input.h"
+#include "LegionGoDevice.h"
 
 //
 // Device type enumeration
@@ -167,6 +168,16 @@ typedef struct {
   EFI_EVENT                            TimerEvent;
   EFI_EVENT                            PollingTimer;  // Timer for ASUS Ally polling
   UINT8                                PollingBuffer[64];  // Buffer for polling data
+
+  //
+  // Legion Go 2 touchpad-as-mouse state (fed by the xinput data stream's
+  // absolute touch samples; see ProcessLegionGoTouch in Xbox360Input.c)
+  //
+  BOOLEAN                              LgoTouchWasTouching;
+  UINT16                               LgoTouchLastX;
+  UINT16                               LgoTouchLastY;
+  UINT32                               LgoTouchReports;   // reports in the current touch sequence
+  UINT8                                LgoTapFrames;      // >0: synthetic tap-click being held
 
   UINT8                                RepeatKey;
   EFI_EVENT                            RepeatTimer;

@@ -744,15 +744,21 @@ DumpOneRawReport (
 }
 
 //
-// Copy a frame into a fixed RAW_DUMP_MAX_BYTES buffer with the standard-frame
-// analog bytes zeroed, so frames can be compared on button/tail content only.
+// Copy a frame into a fixed RAW_DUMP_MAX_BYTES comparison buffer holding
+// only the bytes worth re-dumping a frame for:
+//  - standard XInput frame: everything except the analog bytes 4-13
+//    (buttons live somewhere outside them; stick wiggle must not flood)
+//  - Legion Go vendor xinput-data frame (0x04/../0x74): only the button
+//    bytes 18-20 (the rest of the 60-byte payload holds axes, touchpad
+//    coordinates and unidentified counters that would flood the log)
 //
 STATIC
 VOID
 BuildMaskedFrame (
   OUT UINT8        *Masked,
   IN  CONST UINT8  *Data,
-  IN  UINTN        DataLength
+  IN  UINTN        DataLength,
+  IN  BOOLEAN      IsXDataFrame
   )
 {
   UINTN  Count;
@@ -761,6 +767,14 @@ BuildMaskedFrame (
   Count = (DataLength < RAW_DUMP_MAX_BYTES) ? DataLength : RAW_DUMP_MAX_BYTES;
 
   ZeroMem (Masked, RAW_DUMP_MAX_BYTES);
+
+  if (IsXDataFrame) {
+    for (Index = 18; Index <= 20 && Index < Count; Index++) {
+      Masked[Index] = Data[Index];
+    }
+    return;
+  }
+
   CopyMem (Masked, Data, Count);
   for (Index = XINPUT_ANALOG_BYTES_LOW; Index <= XINPUT_ANALOG_BYTES_HIGH && Index < Count; Index++) {
     Masked[Index] = 0;
@@ -777,34 +791,36 @@ DumpRawReportOnce (
 {
   UINT8    ReportId;
   BOOLEAN  IsStdFrame;
+  BOOLEAN  IsXDataFrame;
   UINT8    Masked[RAW_DUMP_MAX_BYTES];
 
   if ((Data == NULL) || (DataLength == 0)) {
     return;
   }
 
-  ReportId   = Data[0];
-  IsStdFrame = (BOOLEAN)((DataLength >= 14) && (Data[0] == 0x00) && (Data[1] == 0x14));
+  ReportId     = Data[0];
+  IsStdFrame   = (BOOLEAN)((DataLength >= 14) && (Data[0] == 0x00) && (Data[1] == 0x14));
+  IsXDataFrame = (BOOLEAN)((DataLength >= 24) && (Data[0] == 0x04) && (Data[2] == 0x74));
 
   if ((Device->RawReportDumpSeen[ReportId >> 3] & (1u << (ReportId & 7))) == 0) {
     Device->RawReportDumpSeen[ReportId >> 3] |= (UINT8)(1u << (ReportId & 7));
     DumpOneRawReport (Device, Data, DataLength, "first");
-    if (IsStdFrame) {
-      BuildMaskedFrame (Device->LastMaskedReport, Data, DataLength);
+    if (IsStdFrame || IsXDataFrame) {
+      BuildMaskedFrame (Device->LastMaskedReport, Data, DataLength, IsXDataFrame);
       Device->LastMaskedLength = DataLength;
     }
     return;
   }
 
   //
-  // Repeated report ID: for standard XInput frames, re-dump on any
-  // non-analog change (buttons live somewhere outside bytes 4-13).
+  // Repeated report ID: for the two recognized gamepad-state framings,
+  // re-dump whenever the tracked (non-analog / button) bytes change.
   //
-  if (!IsStdFrame || (Device->ChangeDumpCount >= RAW_DUMP_CHANGE_CAP)) {
+  if ((!IsStdFrame && !IsXDataFrame) || (Device->ChangeDumpCount >= RAW_DUMP_CHANGE_CAP)) {
     return;
   }
 
-  BuildMaskedFrame (Masked, Data, DataLength);
+  BuildMaskedFrame (Masked, Data, DataLength, IsXDataFrame);
   if ((DataLength == Device->LastMaskedLength) &&
       (CompareMem (Masked, Device->LastMaskedReport, RAW_DUMP_MAX_BYTES) == 0))
   {

@@ -8,6 +8,7 @@
 **/
 
 #include "LegionGoDevice.h"
+#include "Xbox360Device.h"
 #include "Xbox360Log.h"
 
 #include <Library/BaseMemoryLib.h>
@@ -34,13 +35,22 @@ IsLegionGoRaw (
   }
 
   //
-  // Only the DInput-family modes, which carry no XInput data interface. The
-  // XInput mode (0x61EB) goes through the standard Xbox 360 path instead.
   // Every interface of a matching device is accepted here; the converter
   // only acts on the two known gamepad-state framings (see the file header
   // in LegionGoDevice.h), so other sibling interfaces (DInput gamepad,
   // keyboard, mouse) bind but stay inert.
   //
+  // XInput mode (0x61EB) is handled through these vendor interfaces too:
+  // its XInput data interface never reports the face buttons or touchpad
+  // (field capture, rEFInd_GUI issue #23), while the vendor xinput data
+  // stream carries the full state in every mode. The XInput data interface
+  // itself is excluded here -- it is skipped entirely in IsUSBKeyboard so
+  // sticks and triggers are not decoded twice.
+  //
+  if (DeviceDescriptor.IdProduct == LEGION_GO2_PID_XINPUT) {
+    return !IsXInputInterface (UsbIo);
+  }
+
   return (DeviceDescriptor.IdProduct == LEGION_GO2_PID_DINPUT) ||
          (DeviceDescriptor.IdProduct == LEGION_GO2_PID_DUAL_DINPUT) ||
          (DeviceDescriptor.IdProduct == LEGION_GO2_PID_FPS);

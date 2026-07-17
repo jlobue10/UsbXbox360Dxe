@@ -252,11 +252,12 @@ IsUSBKeyboard (
   }
 
   //
-  // Priority 2: Legion Go 2 in a DInput-family mode (no XInput data
-  // interface exists) -- handled via Lenovo's vendor raw HID reports.
+  // Priority 2: Legion Go 2 vendor raw HID interfaces (every controller
+  // mode, including XInput mode) -- the vendor xinput data stream is the
+  // only stream that reliably carries the buttons and touchpad.
   //
   if (IsLegionGoRaw (UsbIo)) {
-    LOG_INFO ("Lenovo Legion Go 2 (DInput-family mode) detected");
+    LOG_INFO ("Lenovo Legion Go 2 vendor HID interface detected");
     return TRUE;
   }
 
@@ -283,6 +284,21 @@ IsUSBKeyboard (
       // it enumerates in DirectInput mode and needs a binding to receive the
       // XInput mode-switch command (it re-enumerates afterwards).
       //
+      //
+      // Legion Go 2 in XInput mode: the XInput data interface's frames
+      // never carry the face buttons or touchpad -- a 40-event field
+      // capture (rEFInd_GUI issue #23) showed button presses changing only
+      // the D-pad bits -- while the full state, buttons included, rides the
+      // vendor xinput data stream handled via IsLegionGoRaw above. Skip
+      // this interface entirely so sticks and triggers are not decoded
+      // twice (the double-speed cursor from that same field report).
+      //
+      if ((DeviceDescriptor.IdVendor == LEGION_GO_VID) &&
+          (DeviceDescriptor.IdProduct == LEGION_GO2_PID_XINPUT)) {
+        LOG_INFO ("Legion Go 2 (XInput mode): skipping the XInput data interface; state comes from the vendor stream");
+        return FALSE;
+      }
+
       if (!IsXInputInterface (UsbIo) && !IsMsiClaw (UsbIo)) {
 #if XBOX360_LOG_ENABLED
         //

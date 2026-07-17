@@ -619,6 +619,14 @@ ProcessStickChanges (
 //
 #define LGO_TAP_MAX_REPORTS   10
 #define LGO_TAP_HOLD_FRAMES   4
+//
+// Raw pad deltas (~0..1000 units across the pad) proved much too fast in
+// the field ("very fast, like the double-decoded stick", rEFInd_GUI issue
+// #23), so divide them down. Remainders are accumulated (see
+// LgoTouchAccumX/Y) so slow precision swipes still move the cursor instead
+// of truncating to zero.
+//
+#define LGO_TOUCH_SPEED_DIVISOR  3
 
 /**
   Translate a Legion Go 2 absolute touchpad sample into Simple Pointer
@@ -662,6 +670,14 @@ ProcessLegionGoTouch (
       //
       DeltaX = (INT32)Touch->X - (INT32)Device->LgoTouchLastX;
       DeltaY = (INT32)Touch->Y - (INT32)Device->LgoTouchLastY;
+
+      Device->LgoTouchAccumX += DeltaX;
+      Device->LgoTouchAccumY += DeltaY;
+      DeltaX = Device->LgoTouchAccumX / LGO_TOUCH_SPEED_DIVISOR;
+      DeltaY = Device->LgoTouchAccumY / LGO_TOUCH_SPEED_DIVISOR;
+      Device->LgoTouchAccumX -= DeltaX * LGO_TOUCH_SPEED_DIVISOR;
+      Device->LgoTouchAccumY -= DeltaY * LGO_TOUCH_SPEED_DIVISOR;
+
       Device->SimplePointerState.RelativeMovementX += DeltaX;
       Device->SimplePointerState.RelativeMovementY += DeltaY;
     }
@@ -669,6 +685,8 @@ ProcessLegionGoTouch (
     Device->LgoTouchLastY = Touch->Y;
     Device->LgoTouchReports++;
   } else {
+    Device->LgoTouchAccumX = 0;
+    Device->LgoTouchAccumY = 0;
     if (Device->LgoTouchWasTouching &&
         (Device->LgoTouchReports <= LGO_TAP_MAX_REPORTS)) {
       Device->LgoTapFrames = LGO_TAP_HOLD_FRAMES;
@@ -999,7 +1017,7 @@ KeyboardHandler (
     // sibling interfaces -- is ignored; the first such report is logged to
     // aid verifying layouts from field logs.
     //
-    Status = ConvertLegionGoToXbox360 (Data, DataLength, Xbox360Report, &LgoTouch);
+    Status = ConvertLegionGoToXbox360 (Data, DataLength, UsbKeyboardDevice->LegionXInputPid, Xbox360Report, &LgoTouch);
     if (EFI_ERROR (Status)) {
       if (!UsbKeyboardDevice->NonXInputReportLogged) {
         UsbKeyboardDevice->NonXInputReportLogged = TRUE;

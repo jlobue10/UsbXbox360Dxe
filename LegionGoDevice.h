@@ -48,6 +48,11 @@
              as MouseLeft through the legacy path)
     [26..29] touchpad X/Y (unsigned 16-bit BIG-endian, ~0..1000 range,
              0/0 when not touched) -- xinput data stream only
+    [32..33] right stick X/Y under the XINPUT-mode PID (0x61EB), resting
+             0x7F: there, bytes 16/17 stay frozen at 0x80 (field capture,
+             rEFInd_GUI issue #23 -- 16/17 never moved across 56 frames
+             while 32/33 deflected to 0xFF). The DInput-family modes use
+             the 16/17 offsets above
 
   Copyright (c) 2026, jlobue10. All rights reserved.<BR>
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -98,12 +103,15 @@ IsLegionGoRaw (
 /**
   Convert a Legion Go vendor HID report (either stream) to Xbox 360 format.
 
-  @param  RawReport   Raw interrupt report as received (report ID at byte 0)
-  @param  ReportLen   Length of the raw report
-  @param  XboxReport  Receives the 20-byte Xbox 360 format report
-  @param  Touch       Optional; receives the report's touchpad sample.
-                      Touch->Valid stays FALSE when the report carries no
-                      touch data (legacy stream, or report too short)
+  @param  RawReport      Raw interrupt report as received (report ID at byte 0)
+  @param  ReportLen      Length of the raw report
+  @param  XInputModePid  TRUE when the device is bound under the XInput-mode
+                         PID (0x61EB), whose xinput data stream carries the
+                         right stick at bytes 32/33 instead of 16/17
+  @param  XboxReport     Receives the 20-byte Xbox 360 format report
+  @param  Touch          Optional; receives the report's touchpad sample.
+                         Touch->Valid stays FALSE when the report carries no
+                         touch data (legacy stream, or report too short)
 
   @retval EFI_SUCCESS            Converted successfully
   @retval EFI_INVALID_PARAMETER  Not a gamepad state report (wrong ID/length);
@@ -113,6 +121,7 @@ EFI_STATUS
 ConvertLegionGoToXbox360 (
   IN  VOID             *RawReport,
   IN  UINTN            ReportLen,
+  IN  BOOLEAN          XInputModePid,
   OUT UINT8            *XboxReport,
   OUT LEGION_GO_TOUCH  *Touch  OPTIONAL
   );

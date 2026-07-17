@@ -165,6 +165,10 @@ typedef struct {
   GAMEPAD_DEVICE_TYPE                  DeviceType;  // Type of gamepad device
   BOOLEAN                              NonXInputReportLogged;  // one-shot diagnostic in KeyboardHandler
   UINT8                                RawReportDumpSeen[32];  // one-shot per-report-ID raw dump: bit[id] set once that report ID has been logged (all device types)
+  BOOLEAN                              DumpOnly;               // DEBUG diagnosis: interface bound only to dump raw reports; never decode them as input
+  UINT8                                LastMaskedReport[40];   // last dumped standard-XInput frame with analog bytes (4-13) zeroed, for change detection
+  UINTN                                LastMaskedLength;       // length of the frame LastMaskedReport was built from
+  UINT16                               ChangeDumpCount;        // standard-frame change dumps emitted so far (capped)
 
   EFI_EVENT                            TimerEvent;
   EFI_EVENT                            PollingTimer;  // Timer for ASUS Ally polling

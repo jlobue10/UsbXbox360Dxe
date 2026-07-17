@@ -49,7 +49,7 @@
 // rEFInd_GUI issue #23 was burned on exactly this ambiguity).
 // Keep in sync with the release tag.
 //
-#define XBOX360_DRIVER_VERSION      "1.7.0"
+#define XBOX360_DRIVER_VERSION      "1.7.1"
 
 //
 // Log levels

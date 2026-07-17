@@ -183,6 +183,9 @@ typedef struct {
   UINT16                               LgoTouchLastY;
   UINT32                               LgoTouchReports;   // reports in the current touch sequence
   UINT8                                LgoTapFrames;      // >0: synthetic tap-click being held
+  INT32                                LgoTouchAccumX;    // sub-divisor movement remainders, so slow
+  INT32                                LgoTouchAccumY;    //   precise swipes aren't truncated away
+  BOOLEAN                              LegionXInputPid;   // Legion Go 2 bound under the XInput-mode PID (0x61EB): the xinput data stream carries the right stick at bytes 32/33 there
 
   UINT8                                RepeatKey;
   EFI_EVENT                            RepeatTimer;

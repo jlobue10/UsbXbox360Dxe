@@ -92,6 +92,7 @@ EFI_STATUS
 ConvertLegionGoToXbox360 (
   IN  VOID             *RawReport,
   IN  UINTN            ReportLen,
+  IN  BOOLEAN          XInputModePid,
   OUT UINT8            *XboxReport,
   OUT LEGION_GO_TOUCH  *Touch  OPTIONAL
   )
@@ -197,10 +198,26 @@ ConvertLegionGoToXbox360 (
   CopyMem (&XboxReport[6], &StickValue, sizeof (INT16));
   StickValue = ScaleStickAxis (Raw[15], TRUE);   // Left Y
   CopyMem (&XboxReport[8], &StickValue, sizeof (INT16));
-  StickValue = ScaleStickAxis (Raw[16], FALSE);  // Right X
-  CopyMem (&XboxReport[10], &StickValue, sizeof (INT16));
-  StickValue = ScaleStickAxis (Raw[17], TRUE);   // Right Y
-  CopyMem (&XboxReport[12], &StickValue, sizeof (INT16));
+
+  //
+  // Right stick: under the XInput-mode PID the xinput data stream keeps
+  // bytes 16/17 frozen at 0x80 and reports the right stick at bytes 32/33
+  // instead (field capture, rEFInd_GUI issue #23: 16/17 never moved across
+  // 56 frames while 32/33 went 0x7F -> 0xFF under deflection; resting value
+  // there is 0x7F, close enough to the 0x80 center for the deadzone). The
+  // DInput-family modes keep the InputPlumber-verified 16/17.
+  //
+  if (XInputModePid && XDataStream && (ReportLen >= 34)) {
+    StickValue = ScaleStickAxis (Raw[32], FALSE);  // Right X
+    CopyMem (&XboxReport[10], &StickValue, sizeof (INT16));
+    StickValue = ScaleStickAxis (Raw[33], TRUE);   // Right Y
+    CopyMem (&XboxReport[12], &StickValue, sizeof (INT16));
+  } else {
+    StickValue = ScaleStickAxis (Raw[16], FALSE);  // Right X
+    CopyMem (&XboxReport[10], &StickValue, sizeof (INT16));
+    StickValue = ScaleStickAxis (Raw[17], TRUE);   // Right Y
+    CopyMem (&XboxReport[12], &StickValue, sizeof (INT16));
+  }
 
   //
   // Touchpad (xinput data stream only): absolute pad coordinates as

@@ -210,9 +210,25 @@ USBKeyboardDriverBindingStart (
       LOG_WARN ("ASUS ROG Ally initialization failed: %r (continuing anyway)", Status);
     }
   } else if (IsLegionGoRaw (UsbIo)) {
-    // Legion Go 2 in a DInput-family mode - vendor raw HID reports
+    // Legion Go 2 vendor raw HID reports (any controller mode)
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_LEGION_GO;
-    LOG_INFO ("Device type: Lenovo Legion Go 2 (vendor raw HID)");
+
+    //
+    // Under the XInput-mode PID the xinput data stream lays out the right
+    // stick differently (bytes 32/33; see ConvertLegionGoToXbox360), so
+    // remember which PID this binding came from.
+    //
+    {
+      EFI_USB_DEVICE_DESCRIPTOR  LgoDeviceDescriptor;
+
+      Status = UsbIo->UsbGetDeviceDescriptor (UsbIo, &LgoDeviceDescriptor);
+      if (!EFI_ERROR (Status) && (LgoDeviceDescriptor.IdProduct == LEGION_GO2_PID_XINPUT)) {
+        UsbKeyboardDevice->LegionXInputPid = TRUE;
+      }
+    }
+
+    LOG_INFO ("Device type: Lenovo Legion Go 2 (vendor raw HID%a)",
+              UsbKeyboardDevice->LegionXInputPid ? ", XInput-mode PID" : "");
   } else if (IsMsiClaw (UsbIo)) {
     // MSI Claw - Xbox 360 protocol with mode switching
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_XBOX360;

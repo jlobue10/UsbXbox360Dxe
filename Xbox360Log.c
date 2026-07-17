@@ -21,6 +21,30 @@ STATIC BOOLEAN    mLogInitialized = FALSE;
 STATIC CHAR16     mCurrentLogFileName[64];       // Cache current log file name
 STATIC EFI_HANDLE mDriverImageHandle = NULL;    // Driver's own image handle for locating ESP
 
+//
+// Deferred log queue. Messages logged above TPL_CALLBACK must not touch the
+// file system (the FAT driver's locks live at TPL_CALLBACK), but dropping
+// them silently makes the USB interrupt path -- where all input diagnosis
+// happens -- invisible in field logs (rEFInd_GUI issue #23). Producers at
+// high TPL enqueue the formatted message here; a periodic TPL_CALLBACK timer
+// drains the queue to disk. Head/tail are free-running counters (slot =
+// counter % DEFERRED_LOG_SLOTS); all queue state is only touched under a
+// TPL_HIGH_LEVEL guard.
+//
+#define DEFERRED_LOG_SLOTS     32
+#define DEFERRED_LOG_MSG_SIZE  384
+
+typedef struct {
+  UINT8  Level;
+  CHAR8  Message[DEFERRED_LOG_MSG_SIZE];
+} DEFERRED_LOG_ENTRY;
+
+STATIC DEFERRED_LOG_ENTRY  mDeferredQueue[DEFERRED_LOG_SLOTS];
+STATIC UINTN               mDeferredHead = 0;       // next slot to fill
+STATIC UINTN               mDeferredTail = 0;       // next slot to drain
+STATIC UINT32              mDeferredDropped = 0;    // messages lost to a full queue
+STATIC EFI_EVENT           mDeferredFlushTimer = NULL;
+
 /**
   Get current time as EFI_TIME structure.
 
@@ -469,8 +493,9 @@ WriteLogEntryToRoot (
     AsciiSPrint (
       Separator,
       sizeof (Separator),
-      "\n========== Driver Loaded: %a ==========\n",
-      TimeStr
+      "\n========== Driver Loaded: %a (driver v%a, DEBUG build) ==========\n",
+      TimeStr,
+      XBOX360_DRIVER_VERSION
       );
     SepSize = AsciiStrLen (Separator);
     LogFile->Write (LogFile, &SepSize, Separator);
@@ -487,20 +512,19 @@ WriteLogEntryToRoot (
 }
 
 /**
-  Write a formatted log entry to the daily log file.
+  Write one already-formatted log message to the daily log file.
+  Performs file I/O: must be called at TPL_CALLBACK or below.
 
   @param  Level    Log level (INFO/WARN/ERROR)
-  @param  Format   Printf-style format string (ASCII)
-  @param  ...      Variable arguments
+  @param  Message  Formatted message text (ASCII, NUL-terminated)
 
   @retval None
 **/
+STATIC
 VOID
-EFIAPI
-Xbox360Log (
+LogWriteMessage (
   IN UINT8        Level,
-  IN CONST CHAR8  *Format,
-  ...
+  IN CONST CHAR8  *Message
   )
 {
   EFI_STATUS                       Status;
@@ -510,23 +534,11 @@ Xbox360Log (
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
   EFI_FILE_PROTOCOL                *Root;
   CHAR8                            LogBuffer[512];
-  CHAR8                            MessageBuffer[384];
   CHAR8                            TimeStr[20];
-  VA_LIST                          Args;
   CONST CHAR8                      *LevelStr;
   EFI_TIME                         Time;
   CHAR16                           LogFileName[64];
   BOOLEAN                          Written;
-
-  //
-  // The FAT driver acquires its locks at TPL_CALLBACK. Logging from a higher
-  // TPL (e.g. the USB async interrupt callback at TPL_NOTIFY) would make the
-  // FAT driver raise to a *lower* TPL, which is illegal and wedges the
-  // system, so drop the message instead.
-  //
-  if (EfiGetCurrentTpl () > TPL_CALLBACK) {
-    return;
-  }
 
   // Increment sequence
   mLogSequence++;
@@ -534,11 +546,6 @@ Xbox360Log (
   // Get current time
   GetCurrentTime (&Time);
   FormatTimeString (&Time, TimeStr, sizeof(TimeStr));
-
-  // Format message
-  VA_START (Args, Format);
-  AsciiVSPrint (MessageBuffer, sizeof(MessageBuffer), Format, Args);
-  VA_END (Args);
 
   // Determine level string
   switch (Level) {
@@ -564,7 +571,7 @@ Xbox360Log (
     TimeStr,
     mLogSequence,
     LevelStr,
-    MessageBuffer
+    Message
   );
 
   // Get current log file name (based on today's date)
@@ -642,6 +649,114 @@ Xbox360Log (
 }
 
 /**
+  Periodic TPL_CALLBACK timer handler: drain the deferred log queue to disk.
+
+  Entries are copied out of the queue under a TPL_HIGH_LEVEL guard, then
+  written at TPL_CALLBACK where file I/O is legal. A drained line carries the
+  flush-time timestamp (GetTime is not callable above TPL_CALLBACK, so the
+  event time was never captured) and a [deferred] tag so readers know it can
+  be up to one timer period late and slightly reordered against direct lines.
+
+  @param  Event    Timer event (unused).
+  @param  Context  Unused.
+
+  @retval None
+**/
+STATIC
+VOID
+EFIAPI
+DeferredLogFlushHandler (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  EFI_TPL             OldTpl;
+  DEFERRED_LOG_ENTRY  Entry;
+  CHAR8               Tagged[DEFERRED_LOG_MSG_SIZE + 16];
+  UINT32              Dropped;
+
+  Dropped = 0;
+
+  for (;;) {
+    OldTpl = gBS->RaiseTPL (TPL_HIGH_LEVEL);
+    if (mDeferredTail == mDeferredHead) {
+      Dropped          = mDeferredDropped;
+      mDeferredDropped = 0;
+      gBS->RestoreTPL (OldTpl);
+      break;
+    }
+    CopyMem (&Entry, &mDeferredQueue[mDeferredTail % DEFERRED_LOG_SLOTS], sizeof (Entry));
+    mDeferredTail++;
+    gBS->RestoreTPL (OldTpl);
+
+    AsciiSPrint (Tagged, sizeof (Tagged), "%a [deferred]", Entry.Message);
+    LogWriteMessage (Entry.Level, Tagged);
+  }
+
+  if (Dropped != 0) {
+    AsciiSPrint (Tagged, sizeof (Tagged), "Deferred log queue overflow: %u message(s) lost", Dropped);
+    LogWriteMessage (LOG_LEVEL_WARN, Tagged);
+  }
+}
+
+/**
+  Write a formatted log entry to the daily log file.
+
+  @param  Level    Log level (INFO/WARN/ERROR)
+  @param  Format   Printf-style format string (ASCII)
+  @param  ...      Variable arguments
+
+  @retval None
+**/
+VOID
+EFIAPI
+Xbox360Log (
+  IN UINT8        Level,
+  IN CONST CHAR8  *Format,
+  ...
+  )
+{
+  CHAR8    MessageBuffer[DEFERRED_LOG_MSG_SIZE];
+  VA_LIST  Args;
+  EFI_TPL  OldTpl;
+
+  // Format message
+  VA_START (Args, Format);
+  AsciiVSPrint (MessageBuffer, sizeof (MessageBuffer), Format, Args);
+  VA_END (Args);
+
+  //
+  // The FAT driver acquires its locks at TPL_CALLBACK. Logging from a higher
+  // TPL (e.g. the USB async interrupt callback at TPL_NOTIFY, which is where
+  // every input report is handled) must not touch the file system -- doing so
+  // makes the FAT driver raise to a *lower* TPL, which is illegal and wedges
+  // the system (the pre-v1.4.1 lockups). Queue the message instead;
+  // DeferredLogFlushHandler writes it out at TPL_CALLBACK.
+  //
+  if (EfiGetCurrentTpl () > TPL_CALLBACK) {
+    if (mDeferredFlushTimer == NULL) {
+      return;  // no flush timer running, nothing would ever drain the queue
+    }
+    OldTpl = gBS->RaiseTPL (TPL_HIGH_LEVEL);
+    if ((mDeferredHead - mDeferredTail) < DEFERRED_LOG_SLOTS) {
+      mDeferredQueue[mDeferredHead % DEFERRED_LOG_SLOTS].Level = Level;
+      CopyMem (
+        mDeferredQueue[mDeferredHead % DEFERRED_LOG_SLOTS].Message,
+        MessageBuffer,
+        DEFERRED_LOG_MSG_SIZE
+        );
+      mDeferredHead++;
+    } else {
+      mDeferredDropped++;
+    }
+    gBS->RestoreTPL (OldTpl);
+    return;
+  }
+
+  LogWriteMessage (Level, MessageBuffer);
+}
+
+/**
   Manual cleanup function (can be called on driver unload).
 
   @retval None
@@ -707,7 +822,34 @@ Xbox360LogSetImageHandle (
   IN EFI_HANDLE  ImageHandle
   )
 {
+  EFI_STATUS  Status;
+
   mDriverImageHandle = ImageHandle;
+
+  //
+  // Start the deferred-log flush timer: a periodic TPL_CALLBACK tick that
+  // writes out messages logged above TPL_CALLBACK (see Xbox360Log). Without
+  // it, everything logged from the USB interrupt path is silently lost.
+  //
+  if (mDeferredFlushTimer == NULL) {
+    Status = gBS->CreateEvent (
+                    EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                    TPL_CALLBACK,
+                    DeferredLogFlushHandler,
+                    NULL,
+                    &mDeferredFlushTimer
+                    );
+    if (!EFI_ERROR (Status)) {
+      // 250ms in 100ns units
+      Status = gBS->SetTimer (mDeferredFlushTimer, TimerPeriodic, 2500000);
+      if (EFI_ERROR (Status)) {
+        gBS->CloseEvent (mDeferredFlushTimer);
+        mDeferredFlushTimer = NULL;
+      }
+    } else {
+      mDeferredFlushTimer = NULL;
+    }
+  }
 }
 
 #else // !XBOX360_LOG_ENABLED

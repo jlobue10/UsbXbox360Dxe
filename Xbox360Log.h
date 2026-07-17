@@ -44,6 +44,14 @@
 #define XBOX360_LOG_MAX_FILES       5              // Keep only last 5 log files
 
 //
+// Stamped into the log session header so a field log unambiguously
+// identifies the build that produced it (a debug-log round-trip on
+// rEFInd_GUI issue #23 was burned on exactly this ambiguity).
+// Keep in sync with the release tag.
+//
+#define XBOX360_DRIVER_VERSION      "1.6.2"
+
+//
 // Log levels
 //
 #define LOG_LEVEL_INFO    0

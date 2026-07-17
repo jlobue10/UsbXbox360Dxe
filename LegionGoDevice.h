@@ -1,10 +1,11 @@
 /** @file
   Lenovo Legion Go 2 controller support (vendor raw HID interfaces).
 
-  In the DInput-family modes (PIDs 0x61EC/0x61ED/0x61EE, no XInput data
-  interface) the Legion Go 2 exposes TWO Lenovo vendor HID input streams on
-  different interfaces, and this driver binds every interface of the device,
-  so the converter must recognize both by their framing:
+  The Legion Go 2 exposes TWO Lenovo vendor HID input streams on different
+  interfaces in EVERY controller mode -- including XInput mode (PID 0x61EB),
+  where they sit alongside the XInput data interface. This driver binds the
+  vendor interfaces and decodes gamepad state from them, so the converter
+  must recognize both streams by their framing:
 
   1. The "xinput data" stream (usage page 0xFFA0, usage 0x0003, interface 2;
      framing and layout verified from ShadowBlip/InputPlumber's annotated
@@ -16,9 +17,12 @@
        [9]  gamepad mode (0 xinput / 1 dinput / 2 fps)
      This stream carries the full gamepad state -- INCLUDING all buttons --
      in every controller mode, at ~40 Hz. It is the only place the buttons
-     appear in the DInput-family modes: the legacy stream below carries
-     them only in XInput mode, which is why rEFInd_GUI issue #23 reported
-     working sticks/triggers but completely dead buttons.
+     reliably appear: in the DInput-family modes the legacy stream's button
+     bytes stay zero, and in XInput mode the XInput data interface itself
+     never reports the face buttons either (a 40-event field capture on a
+     real Legion Go 2, rEFInd_GUI issue #23, showed button presses changing
+     only the D-pad bits of the standard frame) -- which is why every mode
+     reported working sticks/triggers but dead buttons.
 
   2. The legacy raw stream (usage page 0xFFA0, usage 0x0001; layout from
      hhd's LGO_RAW_INTERFACE_BTN_MAP/AXIS_MAP, which is only verified in
@@ -56,6 +60,7 @@
 #include <Protocol/UsbIo.h>
 
 #define LEGION_GO_VID              0x17EF
+#define LEGION_GO2_PID_XINPUT      0x61EB
 #define LEGION_GO2_PID_DINPUT      0x61EC
 #define LEGION_GO2_PID_DUAL_DINPUT 0x61ED
 #define LEGION_GO2_PID_FPS         0x61EE

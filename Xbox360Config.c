@@ -228,8 +228,11 @@ SetDefaultConfig (
   Config->LeftStick.LeftMapping = 0x50;  // Left Arrow
   Config->LeftStick.RightMapping = 0x4F; // Right Arrow
   
-  // Right stick defaults: Scroll mode (vertical only)
-  Config->RightStick.Mode = STICK_MODE_SCROLL;
+  // Right stick defaults: Mouse mode, joining the left stick on the cursor.
+  // The old Scroll default only accumulates RelativeMovementZ, which rEFInd
+  // never reads, so a correctly-decoded right stick looked completely dead
+  // there (rEFInd_GUI issue #23).
+  Config->RightStick.Mode = STICK_MODE_MOUSE;
   Config->RightStick.Deadzone = 8689;  // Xbox standard for right stick
   Config->RightStick.Saturation = 32000;
   Config->RightStick.MouseSensitivity = 50;
@@ -613,8 +616,8 @@ ValidateAndSanitizeConfig (
   
   // Validate right stick configuration
   if (Config->RightStick.Mode > STICK_MODE_SCROLL) {
-    DEBUG((DEBUG_WARN, "Xbox360: Invalid RightStick mode %d, defaulting to Scroll\n", Config->RightStick.Mode));
-    Config->RightStick.Mode = STICK_MODE_SCROLL;
+    DEBUG((DEBUG_WARN, "Xbox360: Invalid RightStick mode %d, defaulting to Mouse\n", Config->RightStick.Mode));
+    Config->RightStick.Mode = STICK_MODE_MOUSE;
   }
   if (Config->RightStick.Deadzone > 32767) {
     DEBUG((DEBUG_WARN, "Xbox360: RightStick deadzone %d out of range, clamping to 32767\n", Config->RightStick.Deadzone));
@@ -750,10 +753,14 @@ GenerateConfigTemplate (
     "# LeftStickLeftMapping=KeyLeft\r\n"
     "# LeftStickRightMapping=KeyRight\r\n"
     "\r\n"
-    "# Right Stick (default: Scroll mode)\r\n"
-    "RightStickMode=Scroll\r\n"
-    "RightStickScrollSensitivity=30   # 1-100, higher = faster scroll\r\n"
+    "# Right Stick (default: Mouse mode, drives the cursor like the left stick)\r\n"
+    "RightStickMode=Mouse\r\n"
+    "RightStickMouseSensitivity=50    # Sensitivity (1-100, default: 50)\r\n"
     "# RightStickDeadzone=8689         # Xbox standard for right stick\r\n"
+    "\r\n"
+    "# Alternative: Scroll mode (note: rEFInd ignores scroll input entirely)\r\n"
+    "# RightStickMode=Scroll\r\n"
+    "# RightStickScrollSensitivity=30  # 1-100, higher = faster scroll\r\n"
     "\r\n"
     "# Alternative: Use as direction keys\r\n"
     "# RightStickMode=Keys\r\n"
@@ -768,7 +775,7 @@ GenerateConfigTemplate (
     "\r\n"
     "# Common scenarios:\r\n"
     "# - Complete mouse control (default):\r\n"
-    "#     LeftStickMode=Mouse, RightStickMode=Scroll\r\n"
+    "#     LeftStickMode=Mouse, RightStickMode=Mouse\r\n"
     "#     RightTrigger=MouseLeft, LeftTrigger=MouseRight\r\n"
     "# - BIOS/GRUB navigation:\r\n"
     "#     LeftStickMode=Keys, RightStickMode=Disabled\r\n"

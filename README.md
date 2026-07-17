@@ -123,9 +123,13 @@ LeftStickMode=Mouse
 LeftStickMouseSensitivity=50
 LeftStickMouseMaxSpeed=20
 
-# Right stick: Scroll mode (default)
-RightStickMode=Scroll
-RightStickScrollSensitivity=30
+# Right stick: Mouse mode (default) — both sticks drive the cursor
+RightStickMode=Mouse
+RightStickMouseSensitivity=50
+
+# Alternative: Scroll mode (note: rEFInd ignores scroll input)
+# RightStickMode=Scroll
+# RightStickScrollSensitivity=30
 
 # Alternative: Use Keys mode with semantic names
 # LeftStickMode=Keys

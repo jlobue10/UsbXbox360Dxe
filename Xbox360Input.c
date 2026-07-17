@@ -541,29 +541,38 @@ ProcessStickChanges (
     }
   }
   
-  // Process mouse mode for either stick
-  if (GetGlobalConfig()->LeftStick.Mode == STICK_MODE_MOUSE || 
+  // Process mouse mode for either stick. Both sticks may be in Mouse mode
+  // at once (each contributes its own deltas) — an else-if here would make
+  // the right stick dead whenever the left stick also drives the mouse,
+  // which is the shipped default (rEFInd_GUI issue #23).
+  if (GetGlobalConfig()->LeftStick.Mode == STICK_MODE_MOUSE ||
       GetGlobalConfig()->RightStick.Mode == STICK_MODE_MOUSE) {
     INT32  DeltaX = 0;
     INT32  DeltaY = 0;
-    
-    // Calculate movement from active stick (left has priority)
+    INT32  StickDeltaX;
+    INT32  StickDeltaY;
+
     if (GetGlobalConfig()->LeftStick.Mode == STICK_MODE_MOUSE) {
       CalculateMouseMovement(
         Device->XboxState.LeftStickX,
         Device->XboxState.LeftStickY,
         &GetGlobalConfig()->LeftStick,
-        &DeltaX,
-        &DeltaY
+        &StickDeltaX,
+        &StickDeltaY
       );
-    } else if (GetGlobalConfig()->RightStick.Mode == STICK_MODE_MOUSE) {
+      DeltaX += StickDeltaX;
+      DeltaY += StickDeltaY;
+    }
+    if (GetGlobalConfig()->RightStick.Mode == STICK_MODE_MOUSE) {
       CalculateMouseMovement(
         Device->XboxState.RightStickX,
         Device->XboxState.RightStickY,
         &GetGlobalConfig()->RightStick,
-        &DeltaX,
-        &DeltaY
+        &StickDeltaX,
+        &StickDeltaY
       );
+      DeltaX += StickDeltaX;
+      DeltaY += StickDeltaY;
     }
     
     //
@@ -578,18 +587,20 @@ ProcessStickChanges (
     }
   }
   
-  // Process scroll mode for either stick
+  // Process scroll mode for either stick — same both-at-once rule as Mouse
+  // mode above.
   if (GetGlobalConfig()->LeftStick.Mode == STICK_MODE_SCROLL ||
       GetGlobalConfig()->RightStick.Mode == STICK_MODE_SCROLL) {
     INT32  ScrollDelta = 0;
-    
+
     if (GetGlobalConfig()->LeftStick.Mode == STICK_MODE_SCROLL) {
-      ScrollDelta = CalculateScrollDelta(
+      ScrollDelta += CalculateScrollDelta(
         Device->XboxState.LeftStickY,
         &GetGlobalConfig()->LeftStick
       );
-    } else if (GetGlobalConfig()->RightStick.Mode == STICK_MODE_SCROLL) {
-      ScrollDelta = CalculateScrollDelta(
+    }
+    if (GetGlobalConfig()->RightStick.Mode == STICK_MODE_SCROLL) {
+      ScrollDelta += CalculateScrollDelta(
         Device->XboxState.RightStickY,
         &GetGlobalConfig()->RightStick
       );

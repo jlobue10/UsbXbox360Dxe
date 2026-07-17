@@ -1017,7 +1017,7 @@ KeyboardHandler (
     // sibling interfaces -- is ignored; the first such report is logged to
     // aid verifying layouts from field logs.
     //
-    Status = ConvertLegionGoToXbox360 (Data, DataLength, UsbKeyboardDevice->LegionXInputPid, Xbox360Report, &LgoTouch);
+    Status = ConvertLegionGoToXbox360 (Data, DataLength, Xbox360Report, &LgoTouch);
     if (EFI_ERROR (Status)) {
       if (!UsbKeyboardDevice->NonXInputReportLogged) {
         UsbKeyboardDevice->NonXInputReportLogged = TRUE;

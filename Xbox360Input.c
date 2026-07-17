@@ -690,40 +690,39 @@ ProcessLegionGoTouch (
 }
 
 //
-// One-shot raw-report dump for ANY device type: log the first bytes of each
-// distinct report ID (Data[0]) exactly once per device instance, tagged with
-// the interface number, before any decoding. Because every interface of a
-// controller binds as its own USB_KB_DEV, a single field capture then shows
-// exactly what each interface sends and its full byte layout. This is needed on
-// the standard Xbox 360 (XInput) path too: e.g. the Legion Go 2 in "XInput
-// mode" (PID 0x61EB) is decoded here, and a buttons-dead symptom can only be
-// explained by seeing the raw report. Compiled out of RELEASE with the logging.
+// Raw-report dump for ANY device type: log the first bytes of each distinct
+// report ID (Data[0]) once per device instance, tagged with the interface
+// number, before any decoding. Because every interface of a controller binds
+// as its own USB_KB_DEV, a single field capture then shows exactly what each
+// interface sends and its full byte layout.
 //
-#define RAW_DUMP_MAX_BYTES  40
+// One-shot-per-ID alone is not enough on the standard Xbox 360 (XInput)
+// path: every input frame there is message type 0x00 / length 0x14, so only
+// the first (idle) frame would ever be dumped and a button press would stay
+// invisible (rEFInd_GUI issue #23, Legion Go 2 in "XInput mode" PID 0x61EB).
+// For such frames, additionally re-dump whenever any NON-ANALOG byte changes
+// -- the analog bytes 4-13 (triggers and sticks) are masked out of the
+// comparison so stick wiggle doesn't flood the log -- capped per device.
+// Compiled out of RELEASE with the logging.
+//
+#define RAW_DUMP_MAX_BYTES        40
+#define RAW_DUMP_CHANGE_CAP       40
+#define XINPUT_ANALOG_BYTES_LOW   4    // first analog byte in a standard frame
+#define XINPUT_ANALOG_BYTES_HIGH  13   // last analog byte in a standard frame
 
 STATIC
 VOID
-DumpRawReportOnce (
-  IN  USB_KB_DEV  *Device,
-  IN  UINT8       *Data,
-  IN  UINTN       DataLength
+DumpOneRawReport (
+  IN  USB_KB_DEV   *Device,
+  IN  CONST UINT8  *Data,
+  IN  UINTN        DataLength,
+  IN  CONST CHAR8  *Reason
   )
 {
-  UINT8   ReportId;
   UINTN   Count;
   UINTN   Index;
   UINTN   Pos;
   CHAR8   HexLine[RAW_DUMP_MAX_BYTES * 3 + 1];
-
-  if ((Data == NULL) || (DataLength == 0)) {
-    return;
-  }
-
-  ReportId = Data[0];
-  if ((Device->RawReportDumpSeen[ReportId >> 3] & (1u << (ReportId & 7))) != 0) {
-    return;  // this report ID has already been dumped on this interface
-  }
-  Device->RawReportDumpSeen[ReportId >> 3] |= (UINT8)(1u << (ReportId & 7));
 
   Count = (DataLength < RAW_DUMP_MAX_BYTES) ? DataLength : RAW_DUMP_MAX_BYTES;
 
@@ -733,14 +732,96 @@ DumpRawReportOnce (
   }
 
   LOG_INFO (
-    "Raw report: type %u, iface %u, report id 0x%02X, len %u, first %u bytes: %a",
+    "Raw report (%a): type %u, iface %u, report id 0x%02X, len %u, first %u bytes: %a",
+    Reason,
     (UINT32)Device->DeviceType,
     (UINT32)Device->InterfaceDescriptor.InterfaceNumber,
-    ReportId,
+    Data[0],
     (UINT32)DataLength,
     (UINT32)Count,
     HexLine
     );
+}
+
+//
+// Copy a frame into a fixed RAW_DUMP_MAX_BYTES buffer with the standard-frame
+// analog bytes zeroed, so frames can be compared on button/tail content only.
+//
+STATIC
+VOID
+BuildMaskedFrame (
+  OUT UINT8        *Masked,
+  IN  CONST UINT8  *Data,
+  IN  UINTN        DataLength
+  )
+{
+  UINTN  Count;
+  UINTN  Index;
+
+  Count = (DataLength < RAW_DUMP_MAX_BYTES) ? DataLength : RAW_DUMP_MAX_BYTES;
+
+  ZeroMem (Masked, RAW_DUMP_MAX_BYTES);
+  CopyMem (Masked, Data, Count);
+  for (Index = XINPUT_ANALOG_BYTES_LOW; Index <= XINPUT_ANALOG_BYTES_HIGH && Index < Count; Index++) {
+    Masked[Index] = 0;
+  }
+}
+
+STATIC
+VOID
+DumpRawReportOnce (
+  IN  USB_KB_DEV  *Device,
+  IN  UINT8       *Data,
+  IN  UINTN       DataLength
+  )
+{
+  UINT8    ReportId;
+  BOOLEAN  IsStdFrame;
+  UINT8    Masked[RAW_DUMP_MAX_BYTES];
+
+  if ((Data == NULL) || (DataLength == 0)) {
+    return;
+  }
+
+  ReportId   = Data[0];
+  IsStdFrame = (BOOLEAN)((DataLength >= 14) && (Data[0] == 0x00) && (Data[1] == 0x14));
+
+  if ((Device->RawReportDumpSeen[ReportId >> 3] & (1u << (ReportId & 7))) == 0) {
+    Device->RawReportDumpSeen[ReportId >> 3] |= (UINT8)(1u << (ReportId & 7));
+    DumpOneRawReport (Device, Data, DataLength, "first");
+    if (IsStdFrame) {
+      BuildMaskedFrame (Device->LastMaskedReport, Data, DataLength);
+      Device->LastMaskedLength = DataLength;
+    }
+    return;
+  }
+
+  //
+  // Repeated report ID: for standard XInput frames, re-dump on any
+  // non-analog change (buttons live somewhere outside bytes 4-13).
+  //
+  if (!IsStdFrame || (Device->ChangeDumpCount >= RAW_DUMP_CHANGE_CAP)) {
+    return;
+  }
+
+  BuildMaskedFrame (Masked, Data, DataLength);
+  if ((DataLength == Device->LastMaskedLength) &&
+      (CompareMem (Masked, Device->LastMaskedReport, RAW_DUMP_MAX_BYTES) == 0))
+  {
+    return;  // nothing but analog movement since the last dump
+  }
+
+  CopyMem (Device->LastMaskedReport, Masked, RAW_DUMP_MAX_BYTES);
+  Device->LastMaskedLength = DataLength;
+  Device->ChangeDumpCount++;
+
+  DumpOneRawReport (Device, Data, DataLength, "changed");
+  if (Device->ChangeDumpCount == RAW_DUMP_CHANGE_CAP) {
+    LOG_INFO (
+      "Raw report change dump cap reached on iface %u; further changes not logged",
+      (UINT32)Device->InterfaceDescriptor.InterfaceNumber
+      );
+  }
 }
 
 /**
@@ -866,6 +947,16 @@ KeyboardHandler (
   // the raw report layout.
   //
   DumpRawReportOnce (UsbKeyboardDevice, Report, DataLength);
+
+  //
+  // Diagnostic-only binding (DEBUG builds; see Xbox360Device.c): this
+  // sibling interface's reports are captured above but must never be
+  // decoded as input -- decoding foreign HID reports as Xbox 360 state is
+  // exactly the phantom-input bug fixed in v1.5.x.
+  //
+  if (UsbKeyboardDevice->DumpOnly) {
+    return EFI_SUCCESS;
+  }
 
   //
   // Handle different device types

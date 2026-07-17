@@ -284,10 +284,24 @@ IsUSBKeyboard (
       // XInput mode-switch command (it re-enumerates afterwards).
       //
       if (!IsXInputInterface (UsbIo) && !IsMsiClaw (UsbIo)) {
+#if XBOX360_LOG_ENABLED
+        //
+        // DEBUG builds bind these otherwise-skipped sibling interfaces too,
+        // in dump-only mode (USB_KB_DEV.DumpOnly, set in DriverBindingStart):
+        // their raw reports are logged but never decoded as input. Needed to
+        // diagnose devices whose buttons ride a sibling interface -- e.g.
+        // whether the Legion Go 2 in XInput mode (PID 0x61EB) reports its
+        // buttons outside the bound XInput data interface (issue #23).
+        //
+        LOG_INFO ("Device VID:0x%04X PID:0x%04X matched; non-XInput interface will bind in dump-only diagnostic mode",
+                  DeviceDescriptor.IdVendor,
+                  DeviceDescriptor.IdProduct);
+#else
         LOG_INFO ("Device VID:0x%04X PID:0x%04X matched, but this interface is not an XInput data interface; skipping it",
                   DeviceDescriptor.IdVendor,
                   DeviceDescriptor.IdProduct);
         return FALSE;
+#endif
       }
 
       // Found a match! Log the details

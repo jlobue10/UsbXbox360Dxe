@@ -225,7 +225,22 @@ USBKeyboardDriverBindingStart (
   } else {
     // Standard Xbox 360 protocol device
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_XBOX360;
+#if XBOX360_LOG_ENABLED
+    //
+    // In DEBUG builds, Supported() also admits the non-XInput sibling
+    // interfaces of a matched controller so their raw reports appear in
+    // field logs (see Xbox360Device.c). Mark them dump-only: KeyboardHandler
+    // logs their reports and decodes nothing.
+    //
+    if (!IsXInputInterface (UsbIo) && !IsMsiClaw (UsbIo)) {
+      UsbKeyboardDevice->DumpOnly = TRUE;
+      LOG_INFO ("Device type: Xbox 360 protocol (sibling interface, dump-only diagnostic binding)");
+    } else {
+      LOG_INFO ("Device type: Xbox 360 protocol");
+    }
+#else
     LOG_INFO ("Device type: Xbox 360 protocol");
+#endif
   }
 
   //

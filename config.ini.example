@@ -110,23 +110,19 @@ LeftStickMouseCurve=2            # Response curve:
 # LeftStickRightMapping=KeyRight
 
 # ==================
-# Right Stick (default: Scroll mode)
+# Right Stick (default: Mouse mode, drives the cursor like the left stick)
 # ==================
-RightStickMode=Scroll
-RightStickScrollSensitivity=30   # 1-100, higher = faster scroll
+RightStickMode=Mouse
+RightStickMouseSensitivity=50    # Sensitivity (1-100, default: 50)
+# RightStickMouseMaxSpeed=20      # Max speed (pixels/poll, default: 20)
+# RightStickDeadzone=8689         # Xbox standard for right stick
 
-# Right stick scroll mode settings
+# Alternative 1: Scroll mode (note: rEFInd ignores scroll input entirely)
+# RightStickMode=Scroll
+# RightStickScrollSensitivity=30  # 1-100, higher = faster scroll
 # Push up = scroll up, push down = scroll down
-# Deadzone: area around center that's ignored
-# RightStickDeadzone=8689          # Xbox standard for right stick
 
-# Scroll Mode Settings (only apply when RightStickMode=Scroll)
-# --------------------------------------------------------------
-# ScrollSensitivity: 1-100, controls scroll speed (default: 30)
-# Lower values = slower, more precise scrolling
-# Higher values = faster scrolling
-
-# Alternative 1: Use as direction keys (WASD)
+# Alternative 2: Use as direction keys (WASD)
 # RightStickMode=Keys
 # RightStickDirectionMode=4       # 4=4-way, 8=8-way
 # RightStickUpMapping=KeyW
@@ -134,20 +130,15 @@ RightStickScrollSensitivity=30   # 1-100, higher = faster scroll
 # RightStickLeftMapping=KeyA
 # RightStickRightMapping=KeyD
 
-# Alternative 2: Disable right stick
+# Alternative 3: Disable right stick
 # RightStickMode=Disabled
-
-# Alternative 3: Use as mouse (if left stick is in Keys mode)
-# RightStickMode=Mouse
-# RightStickMouseSensitivity=50
-# RightStickMouseMaxSpeed=20
 
 # ==================
 # Common Configuration Scenarios
 # ==================
 # 1. Complete Mouse Control (DEFAULT - Recommended):
 #      LeftStickMode=Mouse         # Move cursor
-#      RightStickMode=Scroll       # Scroll wheel
+#      RightStickMode=Mouse        # Both sticks move the cursor
 #      RightTrigger=MouseLeft      # Mouse left click
 #      LeftTrigger=MouseRight      # Mouse right click
 #

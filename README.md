@@ -1,6 +1,6 @@
 # UEFI Driver for Xbox 360 Controller
 
-> **Note:** This is a fork of **[SkorionOS/UsbXbox360Dxe](https://github.com/SkorionOS/UsbXbox360Dxe)** — all credit for the driver goes to the original project and its contributors. This fork adds Lenovo Legion Go 2 controller support (submitted upstream as [PR #6](https://github.com/SkorionOS/UsbXbox360Dxe/pull/6)) and stability fixes for intermittent load failures and lockups in rEFInd: ESP file logging is compiled out of release builds (it crashed on an uninitialized-variable path during driver load and could run at TPL_NOTIFY from USB callbacks), `config.ini.example` is written only once instead of on every boot, and the ASUS Ally polling path no longer submits a conflicting async transfer on the same endpoint. Prefer the upstream releases once these changes are merged there.
+> **Note:** This is a fork of **[SkorionOS/UsbXbox360Dxe](https://github.com/SkorionOS/UsbXbox360Dxe)** — all credit for the driver goes to the original project and its contributors. This fork adds Lenovo Legion Go 2 controller support (submitted upstream as [PR #6](https://github.com/SkorionOS/UsbXbox360Dxe/pull/6)) and stability fixes for intermittent load failures and lockups in rEFInd: ESP file logging is compiled out of release builds (it crashed on an uninitialized-variable path during driver load and could run at TPL_NOTIFY from USB callbacks), `config.ini.example` is written only once instead of on every boot, the ASUS Ally polling path no longer submits a conflicting async transfer on the same endpoint, and the right stick defaults to Mouse mode so both sticks drive the cursor (the old Scroll default was a no-op in rEFInd, which ignores scroll input). Prefer the upstream releases once these changes are merged there.
 
 This driver is modified from [edk2](https://github.com/tianocore/edk2) USB keyboard driver, with AI-assistance. It provides full Xbox 360 controller support in UEFI environments with mouse emulation, enabling controller use in BIOS, bootloaders, and other UEFI applications.
 
@@ -15,7 +15,7 @@ This driver is modified from [edk2](https://github.com/tianocore/edk2) USB keybo
 - **Semantic Key Names**: Use readable names like `KeyEnter`, `MouseLeft` instead of hex codes
 - **Custom Device Support**: Add your own Xbox 360 protocol compatible devices
 - **Auto-configuration**: Driver creates default config on first boot
-- **Debug Logging**: Automatic logging to ESP partition with rotation and cleanup
+- **Debug Logging**: The `UsbXbox360Dxe-debug.efi` build logs to the ESP partition with rotation and cleanup (compiled out of the standard release build)
 
 ## Default Key Mappings
 
@@ -43,9 +43,10 @@ This driver is modified from [edk2](https://github.com/tianocore/edk2) USB keybo
   - Sensitivity: 50/100
   - Max speed: 20 pixels/poll
   - Deadzone: 8000/32767
-- **Right Stick**: Scroll wheel control (default mode)
-  - Move stick up/down to scroll
-  - Scroll sensitivity: 30/100
+- **Right Stick**: Mouse cursor control (default mode)
+  - Drives the cursor together with the left stick
+  - Sensitivity: 50/100
+  - Max speed: 20 pixels/poll
   - Deadzone: 8689/32767
 
 > **Note**: Mouse functionality requires UEFI firmware with mouse support. Most modern UEFI implementations support this. Each stick can be independently configured for Mouse, Keys, Scroll, or Disabled mode via config file.
@@ -189,7 +190,7 @@ See `KeyBoard.c` for the complete list of supported devices.
 
 This driver binds `EFI_USB_IO_PROTOCOL`, so it only sees devices on the USB
 bus. Handheld built-in touchscreens are **not** USB devices: on the ROG Xbox
-Ally / Ally X the panel is a Goodix **GT7868Q** on the SoC's **I2C** bus,
+Ally X the panel is a Novatek **NVTK0603** on the SoC's **I2C** bus,
 serviced by `i2c-hid`/`hid-multitouch` under Linux. It never enumerates over
 USB, so this driver structurally cannot see it, and no amount of report parsing
 here can add touch support. Driving it in the pre-boot menu would require a
@@ -201,7 +202,7 @@ could in principle be supported, but the built-in handheld panels cannot.
 
 ## Debug Logging
 
-The driver automatically logs diagnostic information to your ESP partition for troubleshooting.
+ESP file logging is compiled out of the standard release build (`UsbXbox360Dxe.efi`) — that's the one installers should ship by default. For troubleshooting, each release also carries `UsbXbox360Dxe-debug.efi`; install it (renamed to `UsbXbox360Dxe.efi` in `drivers_x64`) and it automatically logs diagnostic information to your ESP partition. Switch back to the release build once you're done.
 
 ### Log File Location
 - **Path**: `\EFI\Xbox360\driver_YYYYMMDD.log` (e.g., `driver_20251021.log`)

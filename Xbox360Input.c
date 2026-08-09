@@ -17,6 +17,7 @@
 #include "EfiKey.h"
 #include "AsusAllyDevice.h"
 #include "LegionGoDevice.h"
+#include "TritonDevice.h"
 
 // Number of Xbox 360 buttons (16 bits, 0-15)
 //
@@ -1034,6 +1035,31 @@ KeyboardHandler (
         UsbKeyboardDevice->NonXInputReportLogged = TRUE;
         LOG_INFO (
           "Legion Go: ignoring unrecognized report(s): len=%d bytes [%02X %02X %02X %02X]",
+          (UINT32)DataLength,
+          Report[0],
+          Report[1],
+          Report[2],
+          Report[3]
+          );
+      }
+      return EFI_SUCCESS;
+    }
+
+    Report = Xbox360Report;
+    DataLength = sizeof(Xbox360Report);
+  } else if (UsbKeyboardDevice->DeviceType == DEVICE_TYPE_TRITON) {
+    //
+    // Steam Controller puck slot: convert the native Triton state reports
+    // (0x42/0x45/0x47). Everything else on the endpoint -- lizard-mode
+    // mouse/keyboard reports, battery, wireless status -- is ignored; the
+    // first such report is logged to aid verifying layouts from field logs.
+    //
+    Status = ConvertTritonToXbox360 (Data, DataLength, Xbox360Report);
+    if (EFI_ERROR (Status)) {
+      if (!UsbKeyboardDevice->NonXInputReportLogged) {
+        UsbKeyboardDevice->NonXInputReportLogged = TRUE;
+        LOG_INFO (
+          "Triton: ignoring unrecognized report(s): len=%d bytes [%02X %02X %02X %02X]",
           (UINT32)DataLength,
           Report[0],
           Report[1],

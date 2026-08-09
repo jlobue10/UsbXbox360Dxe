@@ -213,6 +213,10 @@ USBKeyboardDriverBindingStart (
     // Legion Go 2 vendor raw HID reports (any controller mode)
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_LEGION_GO;
     LOG_INFO ("Device type: Lenovo Legion Go 2 (vendor raw HID)");
+  } else if (IsTritonController (UsbIo)) {
+    // Steam Controller puck controller slot (native Triton state reports)
+    UsbKeyboardDevice->DeviceType = DEVICE_TYPE_TRITON;
+    LOG_INFO ("Device type: Steam Controller (puck dongle slot)");
   } else if (IsMsiClaw (UsbIo)) {
     // MSI Claw - Xbox 360 protocol with mode switching
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_XBOX360;
@@ -537,7 +541,7 @@ USBKeyboardDriverBindingStart (
                     UsbKeyboardDevice,
                     &UsbKeyboardDevice->PollingTimer
                     );
-    
+
     if (!EFI_ERROR (Status)) {
       // Start periodic timer: 100ms = 100000 * 100ns = 10000000
       Status = gBS->SetTimer (
@@ -545,7 +549,7 @@ USBKeyboardDriverBindingStart (
                       TimerPeriodic,
                       1000000  // 100ms in 100ns units
                       );
-      
+
       if (EFI_ERROR (Status)) {
         LOG_ERROR ("Failed to start polling timer: %r", Status);
         gBS->CloseEvent (UsbKeyboardDevice->PollingTimer);
@@ -555,6 +559,55 @@ USBKeyboardDriverBindingStart (
       LOG_ERROR ("Failed to create polling timer: %r", Status);
       UsbKeyboardDevice->PollingTimer = NULL;
     }
+  }
+
+  //
+  // For Steam Controller puck slots, disable lizard mode now and keep
+  // re-sending the command from a periodic timer: the controller re-arms
+  // lizard mode a few seconds after the last refresh (which is why SDL
+  // re-sends every 3s), and a controller that links up later must get the
+  // command too. Reuses the PollingTimer slot so Stop() tears it down the
+  // same way as the Ally's poll timer.
+  //
+  if (UsbKeyboardDevice->DeviceType == DEVICE_TYPE_TRITON) {
+    Status = SendTritonLizardDisable (UsbIo);
+    if (EFI_ERROR (Status)) {
+      LOG_WARN ("Triton: initial lizard-mode disable failed: %r (controller may not be linked yet)", Status);
+    } else {
+      LOG_INFO ("Triton: initial lizard-mode disable accepted");
+    }
+
+    Status = gBS->CreateEvent (
+                    EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                    TPL_CALLBACK,
+                    TritonLizardTimerHandler,
+                    UsbKeyboardDevice,
+                    &UsbKeyboardDevice->PollingTimer
+                    );
+
+    if (!EFI_ERROR (Status)) {
+      Status = gBS->SetTimer (
+                      UsbKeyboardDevice->PollingTimer,
+                      TimerPeriodic,
+                      TRITON_LIZARD_TIMER_PERIOD
+                      );
+
+      if (EFI_ERROR (Status)) {
+        LOG_ERROR ("Triton: failed to start lizard keepalive timer: %r", Status);
+        gBS->CloseEvent (UsbKeyboardDevice->PollingTimer);
+        UsbKeyboardDevice->PollingTimer = NULL;
+      }
+    } else {
+      LOG_ERROR ("Triton: failed to create lizard keepalive timer: %r", Status);
+      UsbKeyboardDevice->PollingTimer = NULL;
+    }
+
+    //
+    // The keepalive is an optimization for late-linking controllers; the
+    // driver still works without it while lizard mode stays off, so timer
+    // failures are not fatal.
+    //
+    Status = EFI_SUCCESS;
   }
 
   LOG_INFO ("USB async interrupt transfer started successfully");
@@ -576,8 +629,21 @@ USBKeyboardDriverBindingStart (
     );
 
   LOG_INFO ("Driver initialization completed successfully for controller %p", Controller);
-  
+
   gBS->RestoreTPL (OldTpl);
+
+  //
+  // Steam Controller puck: the platform's USB HID driver can grab the
+  // controller-slot interfaces first (their Supported() probe fails
+  // silently while held BY_DRIVER), leaving only the management
+  // interface bound. Sweep the puck's handles once and reclaim the
+  // slots. Runs after RestoreTPL: ConnectController must not be called
+  // at raised TPL.
+  //
+  if (UsbKeyboardDevice->DeviceType == DEVICE_TYPE_TRITON) {
+    TritonReclaimPuckInterfaces (This, UsbIo);
+  }
+
   return EFI_SUCCESS;
 
   //

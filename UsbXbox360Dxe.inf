@@ -43,6 +43,8 @@
   AsusAllyDevice.h
   LegionGoDevice.c
   LegionGoDevice.h
+  TritonDevice.c
+  TritonDevice.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -85,6 +87,11 @@
   # Otherwise, USB keyboard module tries to use its carried default layout.
   #
   gEfiHiiDatabaseProtocolGuid                   ## SOMETIMES_CONSUMES
+  #
+  # DEBUG builds name the drivers found holding Steam Controller puck
+  # interfaces during the interface reclaim (TritonReclaimPuckInterfaces).
+  #
+  gEfiComponentName2ProtocolGuid                ## SOMETIMES_CONSUMES
 
 [FeaturePcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDisableDefaultKeyboardLayoutInUsbKbDriver ## CONSUMES

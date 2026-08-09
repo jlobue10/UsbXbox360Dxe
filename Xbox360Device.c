@@ -15,6 +15,7 @@
 #include "KeyBoard.h"
 #include "AsusAllyDevice.h"
 #include "LegionGoDevice.h"
+#include "TritonDevice.h"
 
 //
 // Known Xbox 360 compatible devices
@@ -28,6 +29,15 @@ STATIC CONST XBOX360_COMPATIBLE_DEVICE  mXbox360BuiltinDevices[] = {
   { 0x045E, 0x028F, L"Xbox 360 Wired Controller v2" },
   { 0x045E, 0x0719, L"Xbox 360 Wireless Receiver" },
   
+  //
+  // ASUS ROG Controllers
+  //
+  // Raikiri II / II Pro 2.4GHz dongle. Despite the "XBOX WIRELESS" product
+  // string it enumerates as a classic wired-XInput device (interface class
+  // 0xFF, subclass 0x5D, protocol 0x01) -- verified against live hardware.
+  //
+  { 0x0B05, 0x1C92, L"ASUS ROG Raikiri II (2.4GHz dongle)" },
+
   //
   // Handheld Gaming Devices (High Priority)
   //
@@ -228,9 +238,10 @@ IsUSBKeyboard (
   IN  EFI_USB_IO_PROTOCOL  *UsbIo
   )
 {
-  EFI_STATUS                  Status;
-  EFI_USB_DEVICE_DESCRIPTOR   DeviceDescriptor;
-  UINTN                       Index;
+  EFI_STATUS                    Status;
+  EFI_USB_DEVICE_DESCRIPTOR     DeviceDescriptor;
+  EFI_USB_INTERFACE_DESCRIPTOR  InterfaceDescriptor;
+  UINTN                         Index;
 
   Status = UsbIo->UsbGetDeviceDescriptor (UsbIo, &DeviceDescriptor);
   if (EFI_ERROR (Status)) {
@@ -238,10 +249,27 @@ IsUSBKeyboard (
     return FALSE;
   }
 
-  // Log the device being checked (important for debugging)
-  LOG_INFO ("Checking USB device: VID:0x%04X PID:0x%04X", 
-            DeviceDescriptor.IdVendor, 
-            DeviceDescriptor.IdProduct);
+  //
+  // Log the device being checked (important for debugging). Driver binding
+  // is per USB interface, and the interfaces a device exposes under UEFI
+  // can differ from what an OS sees (the Steam Controller puck enumerated
+  // only 3 interfaces in a field log where Linux shows 7), so identify the
+  // interface too.
+  //
+  if (!EFI_ERROR (UsbIo->UsbGetInterfaceDescriptor (UsbIo, &InterfaceDescriptor))) {
+    LOG_INFO ("Checking USB device: VID:0x%04X PID:0x%04X iface %d (class 0x%02X sub 0x%02X proto 0x%02X, %d EPs)",
+              DeviceDescriptor.IdVendor,
+              DeviceDescriptor.IdProduct,
+              InterfaceDescriptor.InterfaceNumber,
+              InterfaceDescriptor.InterfaceClass,
+              InterfaceDescriptor.InterfaceSubClass,
+              InterfaceDescriptor.InterfaceProtocol,
+              InterfaceDescriptor.NumEndpoints);
+  } else {
+    LOG_INFO ("Checking USB device: VID:0x%04X PID:0x%04X",
+              DeviceDescriptor.IdVendor,
+              DeviceDescriptor.IdProduct);
+  }
   
   //
   // Priority 1: Check for ASUS ROG Ally devices (DirectInput)
@@ -258,6 +286,17 @@ IsUSBKeyboard (
   //
   if (IsLegionGoRaw (UsbIo)) {
     LOG_INFO ("Lenovo Legion Go 2 vendor HID interface detected");
+    return TRUE;
+  }
+
+  //
+  // Priority 3: Steam Controller puck dongle controller slots. The puck's
+  // lizard-mode keyboard/mouse are not HID boot protocol, so firmware
+  // never drives them; the native Triton state reports are the only way
+  // this controller can work pre-boot.
+  //
+  if (IsTritonController (UsbIo)) {
+    LOG_INFO ("Steam Controller puck controller-slot interface detected");
     return TRUE;
   }
 

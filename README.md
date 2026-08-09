@@ -1,6 +1,6 @@
 # UEFI Driver for Xbox 360 Controller
 
-> **Note:** This is a fork of **[SkorionOS/UsbXbox360Dxe](https://github.com/SkorionOS/UsbXbox360Dxe)** — all credit for the driver goes to the original project and its contributors. This fork adds Lenovo Legion Go 2 controller support (submitted upstream as [PR #7](https://github.com/SkorionOS/UsbXbox360Dxe/pull/7)) and stability fixes for intermittent load failures and lockups in rEFInd: ESP file logging is compiled out of release builds (it crashed on an uninitialized-variable path during driver load and could run at TPL_NOTIFY from USB callbacks), `config.ini.example` is written only once instead of on every boot, the ASUS Ally polling path no longer submits a conflicting async transfer on the same endpoint, and the right stick defaults to Mouse mode so both sticks drive the cursor (the old Scroll default was a no-op in rEFInd, which ignores scroll input). Prefer the upstream releases once these changes are merged there.
+> **Note:** This is a fork of **[SkorionOS/UsbXbox360Dxe](https://github.com/SkorionOS/UsbXbox360Dxe)** — all credit for the driver goes to the original project and its contributors. This fork adds Lenovo Legion Go 2 controller support (submitted upstream as [PR #7](https://github.com/SkorionOS/UsbXbox360Dxe/pull/7)), Valve Steam Controller (2026) support via the wireless puck dongle, ASUS ROG Raikiri II support via its 2.4GHz dongle, and stability fixes for intermittent load failures and lockups in rEFInd: ESP file logging is compiled out of release builds (it crashed on an uninitialized-variable path during driver load and could run at TPL_NOTIFY from USB callbacks), `config.ini.example` is written only once instead of on every boot, the ASUS Ally polling path no longer submits a conflicting async transfer on the same endpoint, and the right stick defaults to Mouse mode so both sticks drive the cursor (the old Scroll default was a no-op in rEFInd, which ignores scroll input). Prefer the upstream releases once these changes are merged there.
 
 This driver is modified from [edk2](https://github.com/tianocore/edk2) USB keyboard driver, with AI-assistance. It provides full Xbox 360 controller support in UEFI environments with mouse emulation, enabling controller use in BIOS, bootloaders, and other UEFI applications.
 
@@ -177,6 +177,8 @@ The driver will log detected devices to debug output.
   - ZOTAC Gaming Zone
 - **Handheld Gaming Devices (DirectInput)**:
   - ASUS ROG Ally X
+- **Valve**: Steam Controller (2026) via the wireless puck (native Triton protocol; the puck's built-in keyboard/mouse "lizard mode" is not HID boot protocol, so firmware alone cannot use it). Up to four controllers per puck, each on its own dongle interface. The Steam Frame controller dongle (same protocol) is also matched.
+- **ASUS**: ROG Raikiri II / II Pro via the 2.4GHz dongle (enumerates as standard XInput)
 - **8BitDo**: Ultimate, Pro 2, SN30 Pro, Ultimate 2/2C
 - **Logitech**: F310, F510, F710, Chillstream
 - **HyperX**: Clutch (wired/wireless)

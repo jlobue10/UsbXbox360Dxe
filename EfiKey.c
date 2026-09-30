@@ -205,7 +205,7 @@ USBKeyboardDriverBindingStart (
     UsbKeyboardDevice->DeviceType = DEVICE_TYPE_ASUS_ALLY;
     LOG_INFO ("Device type: ASUS ROG Ally (DirectInput)");
 
-    Status = InitializeAsusAlly (UsbIo);
+    Status = InitializeAsusAllyMinimal (UsbIo);
     if (EFI_ERROR (Status)) {
       LOG_WARN ("ASUS ROG Ally initialization failed: %r (continuing anyway)", Status);
     }
@@ -744,6 +744,7 @@ USBKeyboardDriverBindingStop (
   }
 
   UsbKeyboardDevice = USB_KB_DEV_FROM_THIS (SimpleInput);
+  LOG_INFO ("DriverBindingStop called for controller %p", Controller);
 
   //
   // The key data input from this device will be disabled.

@@ -362,6 +362,66 @@ InitializeAsusAlly (
 }
 
 /**
+  Minimal ASUS ROG Ally X initialization: standard HID requests only.
+
+  The vendor sequence in InitializeAsusAlly (EC init string, CMD_SET_GAMEPAD_MODE,
+  force-feedback reset) makes the RC72LA (Ally X 2024) MCU drop off the bus and
+  re-enumerate ~3 s later with its full interface set. rEFInd is already running
+  by then and hangs on the stale device. The MCU already delivers report 0x0B
+  gamepad data on endpoint 0x87 without any vendor command, so skip them.
+
+  @param  UsbIo    Pointer to USB I/O Protocol
+
+  @retval EFI_SUCCESS     Always; request failures are logged only.
+**/
+EFI_STATUS
+InitializeAsusAllyMinimal (
+  IN  EFI_USB_IO_PROTOCOL  *UsbIo
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_USB_DEVICE_REQUEST        Request;
+  EFI_USB_INTERFACE_DESCRIPTOR  InterfaceDescriptor;
+  UINT32                        UsbStatus;
+  UINT8                         InterfaceNumber;
+
+  if (UsbIo == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = UsbIo->UsbGetInterfaceDescriptor (UsbIo, &InterfaceDescriptor);
+  InterfaceNumber = EFI_ERROR (Status) ? 0 : InterfaceDescriptor.InterfaceNumber;
+
+  //
+  // HID SET_PROTOCOL: Report Protocol
+  //
+  ZeroMem (&Request, sizeof (Request));
+  Request.RequestType = 0x21;
+  Request.Request     = 0x0B;
+  Request.Value       = 0x0001;
+  Request.Index       = InterfaceNumber;
+  Status = UsbIo->UsbControlTransfer (UsbIo, &Request, EfiUsbNoData, 100, NULL, 0, &UsbStatus);
+  if (EFI_ERROR (Status)) {
+    LOG_WARN ("SET_PROTOCOL failed: %r (continuing anyway)", Status);
+  }
+
+  //
+  // HID SET_IDLE: duration 0 (report on change only), all report IDs
+  //
+  ZeroMem (&Request, sizeof (Request));
+  Request.RequestType = 0x21;
+  Request.Request     = 0x0A;
+  Request.Index       = InterfaceNumber;
+  Status = UsbIo->UsbControlTransfer (UsbIo, &Request, EfiUsbNoData, 100, NULL, 0, &UsbStatus);
+  if (EFI_ERROR (Status)) {
+    LOG_WARN ("SET_IDLE failed: %r (continuing anyway)", Status);
+  }
+
+  LOG_INFO ("ASUS ROG Ally X minimal initialization completed (vendor commands skipped)");
+  return EFI_SUCCESS;
+}
+
+/**
   Polling timer callback for ASUS ROG Ally devices.
   
   ASUS Ally X does not send async interrupt data, so we need to poll
@@ -404,11 +464,30 @@ AsusAllyPollingHandler (
   //
   // If we got data, call the keyboard handler to process it
   //
-  if (!EFI_ERROR (Status) && DataLength > 0) {
-    // Call the existing handler with the polled data
-    KeyboardHandler (Buffer, DataLength, Context, EFI_USB_NOERROR);
+  if (!EFI_ERROR (Status)) {
+    UsbKeyboardDevice->PollErrorCount = 0;
+    if (DataLength > 0) {
+      KeyboardHandler (Buffer, DataLength, Context, EFI_USB_NOERROR);
+    }
+    return;
   }
-  // Ignore timeout errors - just means no data this cycle
+
+  //
+  // A timeout just means no data this cycle. Anything else (device error,
+  // not found) repeated several times means the device is gone, e.g. the MCU
+  // re-enumerated: stop polling instead of hammering a dead slot.
+  //
+  if ((Status == EFI_TIMEOUT) && ((UsbStatus & ~EFI_USB_ERR_TIMEOUT) == 0)) {
+    return;
+  }
+
+  UsbKeyboardDevice->PollErrorCount++;
+  LOG_WARN ("ASUS Ally poll error %d: %r (UsbStatus 0x%x)",
+            (UINT32)UsbKeyboardDevice->PollErrorCount, Status, UsbStatus);
+  if (UsbKeyboardDevice->PollErrorCount >= ALLY_MAX_POLL_ERRORS) {
+    LOG_ERROR ("ASUS Ally: %d consecutive poll errors, stopping polling", ALLY_MAX_POLL_ERRORS);
+    gBS->SetTimer (Event, TimerCancel, 0);
+  }
 }
 
 /**

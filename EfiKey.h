@@ -175,6 +175,7 @@ typedef struct {
   EFI_EVENT                            TimerEvent;
   EFI_EVENT                            PollingTimer;  // Timer for ASUS Ally polling
   UINT8                                PollingBuffer[64];  // Buffer for polling data
+  UINTN                                PollErrorCount;     // Consecutive ASUS Ally poll errors
 
   //
   // Legion Go 2 touchpad-as-mouse state (fed by the xinput data stream's

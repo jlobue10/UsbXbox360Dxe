@@ -23,7 +23,8 @@ jobs:
     - name: Install dependencies
       run: |
         apt-get update
-        apt-get install -y build-essential uuid-dev iasl git nasm python3
+        apt-get install -y build-essential uuid-dev iasl git nasm python3 \
+          gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
         
     - name: Clone EDK2
       run: |
@@ -65,11 +66,29 @@ jobs:
         # gamepad's raw report shape to write a converter for it).
         build -a X64 -t GCC5 -b DEBUG -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
 
+    # ARM64 (aarch64) build for rEFInd's drivers_aa64/ on Windows-on-Arm /
+    # NVIDIA N1X laptops (e.g. ASUS ProArt P16). The driver binds
+    # EFI_USB_IO_PROTOCOL only, so the sources are architecture-neutral;
+    # cross-compiled with the Debian aarch64 toolchain.
+    - name: Build driver (AARCH64)
+      run: |
+        cd edk2
+        export WORKSPACE=$PWD
+        export PACKAGES_PATH=$WORKSPACE
+        export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
+        source edksetup.sh
+        build -a AARCH64 -t GCC5 -b RELEASE -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
+        build -a AARCH64 -t GCC5 -b DEBUG -p MdeModulePkg/MdeModulePkg.dsc -m MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf
+
     - name: Prepare artifact
       run: |
         mkdir -p output
         cp edk2/Build/MdeModule/RELEASE_GCC5/X64/UsbXbox360Dxe.efi output/
         cp edk2/Build/MdeModule/DEBUG_GCC5/X64/UsbXbox360Dxe.efi output/UsbXbox360Dxe-debug.efi
+        # Asset names carry the EFI architecture suffix; installers place the
+        # file on the ESP as drivers_aa64/UsbXbox360Dxe.efi.
+        cp edk2/Build/MdeModule/RELEASE_GCC5/AARCH64/UsbXbox360Dxe.efi output/UsbXbox360Dxe_aa64.efi
+        cp edk2/Build/MdeModule/DEBUG_GCC5/AARCH64/UsbXbox360Dxe.efi output/UsbXbox360Dxe_aa64-debug.efi
         cp config.ini.example output/
         cp README.md output/
         
@@ -86,6 +105,8 @@ jobs:
         files: |
           output/UsbXbox360Dxe.efi
           output/UsbXbox360Dxe-debug.efi
+          output/UsbXbox360Dxe_aa64.efi
+          output/UsbXbox360Dxe_aa64-debug.efi
           output/config.ini.example
           output/README.md
         generate_release_notes: true

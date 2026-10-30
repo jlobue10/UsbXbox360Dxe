@@ -16,6 +16,7 @@ This driver is modified from [edk2](https://github.com/tianocore/edk2) USB keybo
 - **Custom Device Support**: Add your own Xbox 360 protocol compatible devices
 - **Auto-configuration**: Driver creates default config on first boot
 - **Debug Logging**: The `UsbXbox360Dxe-debug.efi` build logs to the ESP partition with rotation and cleanup (compiled out of the standard release build)
+- **x86-64 and ARM64 builds**: every release ships `UsbXbox360Dxe.efi` for rEFInd's `drivers_x64/` and `UsbXbox360Dxe_aa64.efi` for `drivers_aa64/` on ARM64 (Windows-on-Arm / NVIDIA N1X laptops such as the ASUS ProArt P16); copy the aa64 file onto the ESP as `drivers_aa64/UsbXbox360Dxe.efi`. The driver only speaks `EFI_USB_IO_PROTOCOL`, so the two are the same code (`ARCH=AARCH64 ./test_build.sh` builds it locally)
 
 ## Default Key Mappings
 
@@ -204,7 +205,7 @@ could in principle be supported, but the built-in handheld panels cannot.
 
 ## Debug Logging
 
-ESP file logging is compiled out of the standard release build (`UsbXbox360Dxe.efi`) — that's the one installers should ship by default. For troubleshooting, each release also carries `UsbXbox360Dxe-debug.efi`; install it (renamed to `UsbXbox360Dxe.efi` in `drivers_x64`) and it automatically logs diagnostic information to your ESP partition. Switch back to the release build once you're done.
+ESP file logging is compiled out of the standard release build (`UsbXbox360Dxe.efi`) — that's the one installers should ship by default. For troubleshooting, each release also carries `UsbXbox360Dxe-debug.efi` (and `UsbXbox360Dxe_aa64-debug.efi` for ARM64); install it (renamed to `UsbXbox360Dxe.efi` in `drivers_x64`, or `drivers_aa64` on ARM64) and it automatically logs diagnostic information to your ESP partition. Switch back to the release build once you're done.
 
 ### Log File Location
 - **Path**: `\EFI\Xbox360\driver_YYYYMMDD.log` (e.g., `driver_20251021.log`)

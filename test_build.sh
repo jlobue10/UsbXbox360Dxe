@@ -14,9 +14,17 @@ NC='\033[0m' # No Color
 # Configuration
 BUILD_DIR="build_test"
 EDK2_BRANCH="edk2-stable202411"
-ARCH="X64"
+# ARCH=AARCH64 builds the ARM64 driver (rEFInd drivers_aa64/). On an x86-64
+# host that needs a cross compiler: GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
+# (Debian/Ubuntu: gcc-aarch64-linux-gnu); on an ARM64 host the native gcc
+# is used.
+ARCH="${ARCH:-X64}"
 TOOLCHAIN="GCC5"
-BUILD_TYPE="DEBUG"  # Use DEBUG for testing, change to RELEASE if needed
+BUILD_TYPE="${BUILD_TYPE:-DEBUG}"  # Use DEBUG for testing, change to RELEASE if needed
+if [ "$ARCH" != "X64" ] && [ "$ARCH" != "AARCH64" ]; then
+    echo -e "${RED}Error: ARCH must be X64 or AARCH64 (got '$ARCH')${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}UsbXbox360Dxe Test Build Script${NC}"
@@ -27,8 +35,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo -e "${YELLOW}[1/8] Checking dependencies...${NC}"
-# Check required tools
-for tool in git make gcc nasm iasl python3; do
+# Check required tools (nasm is only used by the X64 assembly in BaseLib/IoLib)
+DEPS="git make gcc iasl python3"
+[ "$ARCH" = "X64" ] && DEPS="$DEPS nasm"
+for tool in $DEPS; do
     if ! command -v $tool &> /dev/null; then
         echo -e "${RED}Error: $tool is not installed${NC}"
         echo "Please install: sudo apt install build-essential uuid-dev iasl git nasm python3"
@@ -133,22 +143,30 @@ echo -e "${YELLOW}[8/8] Preparing output...${NC}"
 cd "$SCRIPT_DIR"
 mkdir -p output
 EFI_PATH="$BUILD_DIR/edk2/Build/MdeModule/${BUILD_TYPE}_${TOOLCHAIN}/${ARCH}/UsbXbox360Dxe.efi"
+# Release asset naming: the X64 driver keeps its historical name, the ARM64
+# build carries the EFI architecture suffix (installed as
+# drivers_aa64/UsbXbox360Dxe.efi on the ESP).
+if [ "$ARCH" = "X64" ]; then
+    OUT_NAME="UsbXbox360Dxe.efi"
+else
+    OUT_NAME="UsbXbox360Dxe_aa64.efi"
+fi
 
 if [ -f "$EFI_PATH" ]; then
-    cp "$EFI_PATH" output/
+    cp "$EFI_PATH" "output/$OUT_NAME"
     cp config.ini.example output/ 2>/dev/null || true
     
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Build completed successfully!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo -e "Output files:"
-    echo -e "  ${GREEN}output/UsbXbox360Dxe.efi${NC}"
+    echo -e "  ${GREEN}output/$OUT_NAME${NC}"
     echo -e "  ${GREEN}output/config.ini.example${NC}"
     echo -e ""
     echo -e "Build artifacts also available at:"
     echo -e "  ${YELLOW}$EFI_PATH${NC}"
     echo -e ""
-    echo -e "File size: $(du -h output/UsbXbox360Dxe.efi | cut -f1)"
+    echo -e "File size: $(du -h "output/$OUT_NAME" | cut -f1)"
     echo -e "${GREEN}========================================${NC}"
 else
     echo -e "${RED}Error: Built .efi file not found at expected location${NC}"

@@ -121,6 +121,24 @@ InitializeAsusAlly (
   IN  EFI_USB_IO_PROTOCOL  *UsbIo
   );
 
+//
+// Consecutive non-timeout poll errors after which polling stops
+//
+#define ALLY_MAX_POLL_ERRORS  5
+
+/**
+  Minimal ASUS ROG Ally X initialization (standard HID requests only, no
+  vendor commands, so the MCU does not re-enumerate).
+
+  @param  UsbIo    Pointer to USB I/O Protocol
+
+  @retval EFI_SUCCESS     Always
+**/
+EFI_STATUS
+InitializeAsusAllyMinimal (
+  IN  EFI_USB_IO_PROTOCOL  *UsbIo
+  );
+
 /**
   Parse ASUS ROG Ally X HID report and convert to Xbox 360 format.
   

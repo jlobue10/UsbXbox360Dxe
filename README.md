@@ -162,7 +162,7 @@ If your Xbox 360 compatible controller isn't recognized:
 
 3. Reboot
 
-The driver will log detected devices to debug output.
+The debug build (`UsbXbox360Dxe-debug.efi`, see [Debug Logging](#debug-logging)) logs every detected device.
 
 ## Supported Devices
 
@@ -205,7 +205,7 @@ could in principle be supported, but the built-in handheld panels cannot.
 
 ## Debug Logging
 
-ESP file logging is compiled out of the standard release build (`UsbXbox360Dxe.efi`) — that's the one installers should ship by default. For troubleshooting, each release also carries `UsbXbox360Dxe-debug.efi` (and `UsbXbox360Dxe_aa64-debug.efi` for ARM64); install it (renamed to `UsbXbox360Dxe.efi` in `drivers_x64`, or `drivers_aa64` on ARM64) and it automatically logs diagnostic information to your ESP partition. Switch back to the release build once you're done.
+The standard release build (`UsbXbox360Dxe.efi`) produces no debug output at all: ESP file logging is compiled out, and since v1.8.2 it links EDK2's null `DebugLib`, so not even library ASSERT/error text can reach the screen — that's the one installers should ship by default (`./test_build.sh` builds it by default too; `BUILD_TYPE=DEBUG ./test_build.sh` builds the logging driver). For troubleshooting, each release also carries `UsbXbox360Dxe-debug.efi` (and `UsbXbox360Dxe_aa64-debug.efi` for ARM64); install it (renamed to `UsbXbox360Dxe.efi` in `drivers_x64`, or `drivers_aa64` on ARM64) and it automatically logs diagnostic information to your ESP partition. Switch back to the release build once you're done.
 
 ### Log File Location
 - **Path**: `\EFI\Xbox360\driver_YYYYMMDD.log` (e.g., `driver_20251021.log`)

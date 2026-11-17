@@ -45,13 +45,14 @@ jobs:
     - name: Copy driver source to EDK2
       run: |
         mkdir -p edk2/MdeModulePkg/Bus/Usb/UsbXbox360Dxe
-        cp *.c *.h *.inf *.uni edk2/MdeModulePkg/Bus/Usb/UsbXbox360Dxe/
+        cp *.c *.h *.inf *.uni *.dsc.inc edk2/MdeModulePkg/Bus/Usb/UsbXbox360Dxe/
         
     - name: Add driver to build configuration
       run: |
         cd edk2
-        # Add driver to MdeModulePkg.dsc
-        sed -i '/\[Components\]/a \  MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf' MdeModulePkg/MdeModulePkg.dsc
+        # Add driver to MdeModulePkg.dsc. The .dsc.inc carries the component
+        # entry, which links the null DebugLib into RELEASE builds.
+        sed -i '/\[Components\]/a !include MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.dsc.inc' MdeModulePkg/MdeModulePkg.dsc
         
     - name: Build driver
       run: |
@@ -91,7 +92,21 @@ jobs:
         cp edk2/Build/MdeModule/DEBUG_GCC5/AARCH64/UsbXbox360Dxe.efi output/UsbXbox360Dxe_aa64-debug.efi
         cp config.ini.example output/
         cp README.md output/
-        
+
+    # The standard builds must not be able to print: the console DebugLib's
+    # "ASSERT [module] file(line): expr" format string must not be linked
+    # into them (the -debug builds keep it).
+    - name: Verify release builds are silent
+      run: |
+        for f in output/UsbXbox360Dxe.efi output/UsbXbox360Dxe_aa64.efi; do
+          if grep -a -q 'ASSERT \[' "$f"; then
+            echo "::error::$f still contains DebugLib output strings"
+            exit 1
+          fi
+        done
+        grep -a -q 'ASSERT \[' output/UsbXbox360Dxe-debug.efi
+        grep -a -q 'ASSERT \[' output/UsbXbox360Dxe_aa64-debug.efi
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:

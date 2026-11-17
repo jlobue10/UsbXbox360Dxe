@@ -20,7 +20,9 @@ EDK2_BRANCH="edk2-stable202411"
 # is used.
 ARCH="${ARCH:-X64}"
 TOOLCHAIN="GCC5"
-BUILD_TYPE="${BUILD_TYPE:-DEBUG}"  # Use DEBUG for testing, change to RELEASE if needed
+# RELEASE is the silent build that ships as UsbXbox360Dxe.efi. BUILD_TYPE=DEBUG
+# builds the troubleshooting driver (ESP file logging + console DebugLib).
+BUILD_TYPE="${BUILD_TYPE:-RELEASE}"
 if [ "$ARCH" != "X64" ] && [ "$ARCH" != "AARCH64" ]; then
     echo -e "${RED}Error: ARCH must be X64 or AARCH64 (got '$ARCH')${NC}"
     exit 1
@@ -112,13 +114,18 @@ cp "$SCRIPT_DIR"/*.c MdeModulePkg/Bus/Usb/UsbXbox360Dxe/ 2>/dev/null || true
 cp "$SCRIPT_DIR"/*.h MdeModulePkg/Bus/Usb/UsbXbox360Dxe/ 2>/dev/null || true
 cp "$SCRIPT_DIR"/*.inf MdeModulePkg/Bus/Usb/UsbXbox360Dxe/
 cp "$SCRIPT_DIR"/*.uni MdeModulePkg/Bus/Usb/UsbXbox360Dxe/ 2>/dev/null || true
+cp "$SCRIPT_DIR"/*.dsc.inc MdeModulePkg/Bus/Usb/UsbXbox360Dxe/
 echo -e "${GREEN}✓ Driver source copied${NC}"
 
 echo -e "${YELLOW}[6/8] Adding driver to build configuration...${NC}"
 # Check if driver is already in MdeModulePkg.dsc
-if ! grep -q "UsbXbox360Dxe/UsbXbox360Dxe.inf" MdeModulePkg/MdeModulePkg.dsc; then
-    # Add driver to MdeModulePkg.dsc under [Components] section
-    sed -i '/\[Components\]/a \  MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf' MdeModulePkg/MdeModulePkg.dsc
+# An EDK2 tree prepared by an older version of this script lists the bare
+# .inf; drop that line so the component is not declared twice.
+sed -i '\#^  MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.inf$#d' MdeModulePkg/MdeModulePkg.dsc
+if ! grep -q "UsbXbox360Dxe/UsbXbox360Dxe.dsc.inc" MdeModulePkg/MdeModulePkg.dsc; then
+    # Add driver to MdeModulePkg.dsc under [Components] section. The .dsc.inc
+    # carries the component entry (null DebugLib for RELEASE builds).
+    sed -i '/\[Components\]/a !include MdeModulePkg/Bus/Usb/UsbXbox360Dxe/UsbXbox360Dxe.dsc.inc' MdeModulePkg/MdeModulePkg.dsc
     echo "Driver added to build configuration"
 else
     echo "Driver already in build configuration"
